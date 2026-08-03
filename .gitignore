@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+results/
+*.log
+research_papers/
+.venv/
+results.zip
+benchmark.zip
