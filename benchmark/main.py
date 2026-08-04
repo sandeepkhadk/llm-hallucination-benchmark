@@ -66,7 +66,9 @@ def build_detectors(config: Config, generator_engine, judge_engine, corpus, mock
         rag_detector = RAGVerificationDetector(config.model.embedding_model, corpus=corpus)
 
     return {
-        "selfcheckgpt": SelfCheckGPTDetector(generator_engine, n_samples=config.experiment.n_selfcheck_samples),
+        "selfcheckgpt": SelfCheckGPTDetector(
+            generator_engine, n_samples=config.experiment.n_selfcheck_samples, seed=config.experiment.seed
+        ),
         "rag_verification": rag_detector,
         "llm_as_judge": LLMAsJudgeDetector(judge_engine),
     }
@@ -117,10 +119,17 @@ def main() -> None:
     )
     parser.add_argument("--total-prompts", type=int, default=500)
     parser.add_argument("--output-dir", type=str, default="results")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="base seed for per-prompt generation seeding (Methodology III-B); matches the dataset seed by default so the same value reproduces both the sampled dataset and its generations",
+    )
     args = parser.parse_args()
 
     config = Config()
     config.output_dir = args.output_dir
+    config.experiment.seed = args.seed
 
     if args.lite and not args.mock:
         apply_lite_overrides(config)

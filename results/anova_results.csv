@@ -1,0 +1,4 @@
+metric,f_stat,p_value
+baseline_ttft_ms,0.0,1.0
+baseline_throughput_tps,0.0,1.0
+detection_overhead_ms,1369.9706525561887,1.1548552714465926e-150

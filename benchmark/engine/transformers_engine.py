@@ -7,10 +7,10 @@ methodology-faithful measurements.
 from __future__ import annotations
 
 import time
-from typing import List
+from typing import List, Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
 from engine.inference_engine import GenerationResult, InferenceEngine
 
@@ -25,12 +25,27 @@ class TransformersEngine(InferenceEngine):
         self.model.eval()
 
     @torch.no_grad()
-    def generate(self, prompts: List[str], max_new_tokens: int = 256, n: int = 1):
+    def generate(
+        self,
+        prompts: List[str],
+        max_new_tokens: int = 256,
+        n: int = 1,
+        seeds: Optional[List[List[int]]] = None,
+    ):
         results = []
-        for prompt in prompts:
+        for idx, prompt in enumerate(prompts):
             inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
             per_prompt = []
-            for _ in range(n):
+            for k in range(n):
+                # Per-prompt(/per-sample) seeding (Methodology III-B): set
+                # immediately before this generation call, not once globally,
+                # so each prompt/sample is reproducible independent of what
+                # ran before it in the batch.
+                seed = seeds[idx][k] if seeds is not None else None
+                if seed is not None:
+                    set_seed(seed)
+                    torch.manual_seed(seed)
+
                 start = time.perf_counter()
                 output = self.model.generate(
                     **inputs,
@@ -58,6 +73,7 @@ class TransformersEngine(InferenceEngine):
                         throughput_tps=throughput,
                         prompt_tokens=n_prompt_tokens,
                         output_tokens=n_out_tokens,
+                        seed=seed,
                     )
                 )
             results.append(per_prompt)

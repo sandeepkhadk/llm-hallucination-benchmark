@@ -1,0 +1,10 @@
+paradigm_a,paradigm_b,metric,t_stat,p_value,n
+llm_as_judge,rag_verification,baseline_ttft_ms,,,200
+llm_as_judge,selfcheckgpt,baseline_ttft_ms,,,200
+rag_verification,selfcheckgpt,baseline_ttft_ms,,,200
+llm_as_judge,rag_verification,baseline_throughput_tps,,,200
+llm_as_judge,selfcheckgpt,baseline_throughput_tps,,,200
+rag_verification,selfcheckgpt,baseline_throughput_tps,,,200
+llm_as_judge,rag_verification,detection_overhead_ms,40.39518074205607,7.594456603744797e-98,200
+llm_as_judge,selfcheckgpt,detection_overhead_ms,-46.918114559927915,1.4786203680304002e-109,200
+rag_verification,selfcheckgpt,detection_overhead_ms,-50.02088693022366,1.1645908514355633e-114,200

@@ -36,12 +36,15 @@ def run_benchmark(
 ) -> pd.DataFrame:
     rows = []
 
-    # Warm-up: mitigate cold-start GPU initialization effects.
+    # Warm-up: mitigate cold-start GPU initialization effects. Intentionally
+    # left unseeded -- warm-up outputs are discarded and are not part of the
+    # measured, reproducible results (Methodology III-C).
     if dataset:
         generator_engine.warmup(dataset[0]["prompt"], config.experiment.n_warmup_runs)
 
     start_time = time.perf_counter()
     total_prompts = len(dataset)
+    base_seed = config.experiment.seed
 
     for batch_size in config.experiment.batch_sizes:
         for start_idx in range(0, len(dataset), batch_size):
@@ -57,16 +60,25 @@ def run_benchmark(
                 flush=True,
             )
 
-            # 1) Baseline generation
+            # 1) Baseline generation. Prompt i (its absolute position in
+            # `dataset`, independent of batch_size) is seeded base_seed + i,
+            # applied per-prompt rather than once globally, so the same
+            # prompt is generated from the same random state at every model
+            # scale (--lite / --paper), keeping the cross-scale F1
+            # comparison clean of seed drift.
             reset_peak_vram()
             t0 = time.perf_counter()
-            baseline_results = generator_engine.generate(prompts, max_new_tokens=300, n=1)
+            baseline_seeds = [[base_seed + start_idx + j] for j in range(len(batch))]
+            baseline_results = generator_engine.generate(
+                prompts, max_new_tokens=300, n=1, seeds=baseline_seeds
+            )
             time.perf_counter() - t0
             baseline_vram_mb = peak_vram_mb()
 
-            for item, gen_list in zip(batch, baseline_results):
+            for local_idx, (item, gen_list) in enumerate(zip(batch, baseline_results)):
                 gen = gen_list[0]
                 bucket = _bucket_for_length(gen.output_tokens, config.experiment.sequence_length_buckets)
+                prompt_index = start_idx + local_idx
                 base_row = dict(
                     prompt_id=item["id"],
                     source=item["source"],
@@ -76,6 +88,7 @@ def run_benchmark(
                     generated_text=gen.text,
                     batch_size=batch_size,
                     seq_len_bucket=bucket,
+                    seed=gen.seed,
                     baseline_ttft_ms=gen.ttft_ms,
                     baseline_latency_ms=gen.latency_ms,
                     baseline_throughput_tps=gen.throughput_tps,
@@ -84,7 +97,9 @@ def run_benchmark(
 
                 # 2) Detection execution, per paradigm
                 for paradigm_name, detector in detectors.items():
-                    detection = detector.detect(prompt=item["prompt"], generated_text=gen.text)
+                    detection = detector.detect(
+                        prompt=item["prompt"], generated_text=gen.text, prompt_index=prompt_index
+                    )
                     row = dict(base_row)
                     row["paradigm"] = paradigm_name
                     row["predicted_hallucination"] = detection.is_hallucination

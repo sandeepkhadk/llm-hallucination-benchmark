@@ -43,17 +43,29 @@ class SelfCheckGPTDetector(HallucinationDetector):
         num_heads: int = 32,
         head_dim: int = 128,
         dtype_bytes: int = 2,
+        seed: int = 42,
     ):
         self.engine = engine
         self.n_samples = n_samples
         self.consistency_scorer = consistency_scorer or _lexical_overlap_scorer
         self.consistency_threshold = consistency_threshold
         self._model_shape = dict(num_layers=num_layers, num_heads=num_heads, head_dim=head_dim, dtype_bytes=dtype_bytes)
+        # Base seed for this paradigm's N samples (Methodology III-B): offset
+        # from the baseline generation's seed (base_seed + prompt_index) so
+        # samples are reproducible without duplicating the baseline draw.
+        self.seed = seed
 
     def detect(self, prompt: str, generated_text: str, max_new_tokens: int = 256, **kwargs) -> DetectionResult:
         reset_peak_vram()
         start = time.perf_counter()
-        sample_results = self.engine.generate([prompt], max_new_tokens=max_new_tokens, n=self.n_samples)[0]
+        prompt_index = kwargs.get("prompt_index")
+        if prompt_index is not None:
+            sample_seeds = [[self.seed + prompt_index * 100 + s for s in range(self.n_samples)]]
+        else:
+            sample_seeds = None
+        sample_results = self.engine.generate(
+            [prompt], max_new_tokens=max_new_tokens, n=self.n_samples, seeds=sample_seeds
+        )[0]
         elapsed_s = time.perf_counter() - start
 
         samples_text = [r.text for r in sample_results]
@@ -76,5 +88,6 @@ class SelfCheckGPTDetector(HallucinationDetector):
                 throughput_tps=throughput,
                 kv_cache_mb=kv_cache_mb,
                 peak_vram_mb=vram_spike_mb,
+                sample_seeds=",".join(str(r.seed) for r in sample_results),
             ),
         )

@@ -42,6 +42,12 @@ class ExperimentConfig:
     n_selfcheck_samples: int = 5  # N in SelfCheckGPT's O(N*L) time complexity
     n_warmup_runs: int = 5
     fp16: bool = True
+    # Base seed for reproducible, per-prompt generation seeding (default
+    # matches dataset.seed). Prompt i is seeded base_seed + i for baseline
+    # generation, and base_seed + i*100 + sample_idx for SelfCheckGPT's N
+    # samples, so the same prompt is generated from the same random state
+    # across model scales (--lite / --paper).
+    seed: int = 42
 
 
 @dataclass
