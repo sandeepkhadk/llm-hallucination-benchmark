@@ -3,8 +3,9 @@
 A controlled, reproducible benchmark that compares three LLM hallucination-detection
 paradigms — **SelfCheckGPT**, **RAG Verification**, and **LLM-as-a-Judge** — not just on
 detection accuracy (F1/precision/recall) but on their **computational cost**: latency
-overhead, throughput, peak VRAM, KV-cache size, and vector-store memory. It implements the
-Methodology section (Section III) of `hallucination.pdf`, end-to-end: dataset construction →
+overhead, throughput, peak VRAM, KV-cache size, and vector-store memory. This repository
+contains both the benchmarking harness (`benchmark/`) and the accompanying IEEE-conference
+paper (`main.tex`) that reports the results of running it end-to-end: dataset construction →
 baseline generation → per-paradigm detection → statistical significance testing (paired
 t-tests, ANOVA) → Pareto-frontier / distribution visualizations → a generated Word report.
 
@@ -18,91 +19,56 @@ SelfCheckGPT is `O(N·L)` (N extra generations of length L), RAG Verification is
 the same dataset/hardware so the accuracy-vs-cost trade-off (see `results/plots/pareto_frontier.png`)
 is empirically grounded rather than assumed.
 
-## Folder structure
+## Repository layout
 
 ```
-benchmark/
-├── main.py                                # CLI entry point: wires config → data → engines → detectors → harness → analysis
-├── config.py                              # ModelConfig / DatasetConfig / ExperimentConfig (independent variables)
-├── requirements.txt                       # Full dependency set (vLLM, torch, transformers, sentence-transformers, faiss, ...)
-├── README.md
-├── Hallucination_Benchmark_Colab.ipynb    # One-click Google Colab runner (upload/clone → install → run → download results)
-├── .gitignore                             # Ignores __pycache__/, results/, *.log
+hallucination/
+├── main.tex                     # IEEE-conference paper (Sections I-V): methodology, results, discussion
+├── README.md                    # This file
+├── .gitignore                   # Ignores __pycache__/, *.pyc, *.log, research_papers/, .venv/
 │
-├── data/
-│   ├── __init__.py
-│   └── prepare_dataset.py                 # Builds the stratified prompt sample (HaluEval + TruthfulQA),
-│                                           # falls back to synthetic mock data per-source if downloads fail
+├── benchmark/                   # The benchmarking harness (code). See benchmark/README.md for full details.
+│   ├── main.py, config.py, requirements.txt, Hallucination_Benchmark_Colab.ipynb
+│   ├── data/                    # Dataset construction (HaluEval + TruthfulQA)
+│   ├── engine/                  # vLLM / transformers / mock inference backends + memory profiling
+│   ├── detectors/               # SelfCheckGPT, RAG verification, LLM-as-a-judge implementations
+│   ├── harness/                 # Data-collection loop + accuracy/overhead metrics
+│   ├── analysis/                # Paired t-tests, ANOVA, Pareto/TTFT plots
+│   └── README.md
 │
-├── engine/
-│   ├── __init__.py
-│   ├── inference_engine.py                # GenerationResult dataclass + InferenceEngine base + VLLMEngine (primary backend)
-│   ├── transformers_engine.py             # TransformersEngine — CPU/GPU-portable fallback backend
-│   ├── mock_engine.py                     # MockEngine — dependency-free fake timings for pipeline sanity-checks
-│   └── memory_profiler.py                 # KV-cache / vector-store / peak-VRAM measurement utilities
+├── results/                     # Checked-in output of the `--lite` (Qwen2.5-0.5B) run — main.tex Sections IV-A/B/C
+│   ├── raw_results.csv, accuracy_metrics.csv, paired_ttests.csv, anova_results.csv
+│   └── plots/                   # pareto_frontier.png, ttft_distribution.png
 │
-├── detectors/
-│   ├── __init__.py
-│   ├── base.py                            # DetectionResult dataclass + HallucinationDetector abstract base
-│   ├── selfcheckgpt_detector.py            # SelfCheckGPT paradigm (N-sample consistency check)
-│   ├── rag_verification_detector.py        # RAG Verification paradigm (BGE embeddings + FAISS retrieval)
-│   ├── mock_rag_detector.py                # MockRAGVerificationDetector — pure-Python stand-in used only in --mock mode
-│   └── llm_judge_detector.py               # LLM-as-a-Judge paradigm (judge model scores the generated answer)
+├── results_paper/               # Checked-in output of the `--paper` (Qwen2.5-1.5B) run — main.tex Section IV-D
+│   ├── raw_results.csv, accuracy_metrics.csv, paired_ttests.csv, anova_results.csv
+│   ├── strong_judge_results.csv, strong_judge_accuracy_metrics.csv   # --strong-judge (3B judge) ablation
+│   └── plots/
 │
-├── harness/
-│   ├── __init__.py
-│   ├── run_benchmark.py                   # Main data-collection loop (baseline generation → per-paradigm detection)
-│   └── metrics.py                         # Ground-truth labeling, F1/precision/recall, and detection_overhead_ms
+├── research_paper_/              # Self-contained LaTeX build directory used to actually compile the paper
+│   ├── main.tex                 # copy of the root main.tex, kept alongside the assets pdflatex/bibtex need
+│   ├── references.bib
+│   ├── hallucination.pdf        # last compiled output
+│   ├── plots/                   # copies of results/plots/*.png (referenced via \includegraphics{plots/...})
+│   └── plots_paper/             # copies of results_paper/plots/*.png (referenced via \includegraphics{plots_paper/...})
 │
-├── analysis/
-│   ├── __init__.py
-│   ├── stats_analysis.py                  # Paired t-tests + ANOVA across paradigms (Methodology III-D)
-│   └── visualize.py                       # Pareto frontier (F1 vs cost) + metric-distribution plots
-│
-└── results/                                # Generated at runtime (git-ignored), created by `main.py`
-    ├── raw_results.csv                     # One row per (prompt, paradigm, batch_size, seq_len_bucket) run
-    ├── accuracy_metrics.csv                # F1/precision/recall per paradigm
-    ├── strong_judge_accuracy_metrics.csv   # Same, for the optional --strong-judge rerun
-    ├── strong_judge_results.csv            # Raw rows for the --strong-judge rerun
-    ├── paired_ttests.csv                   # Pairwise significance tests between paradigms
-    ├── anova_results.csv                   # One-way ANOVA across all three paradigms
-    ├── Benchmark_Report.docx               # Generated report: methodology, results, conclusions, complexity analysis
-    └── plots/
-        ├── pareto_frontier.png             # F1 vs detection_overhead_ms trade-off (log-scale, lower=cheaper)
-        └── ttft_distribution.png           # TTFT distribution boxplot per paradigm
+└── research_papers/              # Git-ignored: cited reference PDFs (FActScore, SelfCheckGPT, RAGAS, etc.), not tracked
+    └── references/
 ```
 
-## Module responsibilities
+`main.tex` at the repo root is the single source of truth for the paper's text and is what
+should be edited going forward; because `pdflatex`/`bibtex` also need `references.bib` and
+the `plots/`/`plots_paper/` image folders sitting next to `main.tex`, compiling means copying
+the updated `main.tex` into `research_paper_/` (or copying `references.bib` and the plots
+folders next to the root `main.tex`) before running the build.
 
-- `config.py` — models, dataset, and experiment configuration (independent
-  variables: paradigm, output length bucket, batch size). Key classes:
-  `ModelConfig` (generator/judge/embedding/strong-judge model names),
-  `DatasetConfig` (total prompts, 50/50 HaluEval/TruthfulQA split, seed=42),
-  `ExperimentConfig` (paradigms list, sequence-length buckets, batch sizes,
-  N=5 SelfCheckGPT samples, 5 warm-up runs).
-- `data/prepare_dataset.py` — builds the stratified prompt sample from
-  HaluEval + TruthfulQA (falls back to synthetic mock data if downloads fail).
-- `engine/` — inference backends (`VLLMEngine` primary, `TransformersEngine`
-  fallback, `MockEngine` for dependency-free pipeline testing) and
-  `memory_profiler.py` (VRAM / KV-cache / vector-store memory measurement).
-- `detectors/` — the three detection paradigms, each returning a
-  `DetectionResult` plus the metrics specified in Methodology III-C.
-  `mock_rag_detector.py` mirrors `RAGVerificationDetector`'s output shape
-  with pure-Python Jaccard similarity so `--mock` runs need no model downloads.
-- `harness/run_benchmark.py` — the main data-collection loop (baseline
-  generation → detection execution → metric logging), and `metrics.py` for
-  F1/precision/recall against ground-truth hallucination labels plus the
-  unit-consistent `detection_overhead_ms` metric used for cost comparisons.
-- `analysis/` — paired t-tests + ANOVA (`stats_analysis.py`) and Pareto
-  frontier / distribution plots (`visualize.py`).
-- `main.py` — end-to-end entry point; `build_engines()` selects the
-  generator/judge backend (reusing one engine for both when they share the
-  same model, so no extra VRAM is used), `build_detectors()` selects real vs.
-  mock detectors based on the `--mock` flag.
+See `benchmark/README.md` for the harness's internal module responsibilities and its own
+(git-ignored) `results/` output layout when run standalone from inside `benchmark/`.
 
 ## Quick start (no downloads, sanity-check the pipeline)
 
 ```bash
+cd benchmark
 pip install pandas scipy scikit-learn matplotlib seaborn
 python main.py --mock --total-prompts 40
 ```
@@ -114,6 +80,7 @@ committing to real model downloads.
 ## Full run
 
 ```bash
+cd benchmark
 pip install -r requirements.txt
 python main.py --backend vllm --total-prompts 500
 ```
@@ -130,15 +97,16 @@ GPU with several GB of free VRAM just for the 8B model's weights and KV cache.
 *real* (non-mock) end-to-end run:
 
 ```bash
+cd benchmark
 pip install -r requirements.txt   # torch + transformers + sentence-transformers + faiss are enough; vllm not required
-python main.py --lite --total-prompts 40
+python main.py --lite --total-prompts 40 --output-dir ../results
 ```
 
 `--lite` forces `--backend transformers`, uses `Qwen/Qwen2.5-0.5B-Instruct` as
 generator/judge and `BAAI/bge-small-en-v1.5` as the embedding model, and
-reduces batch sizes / SelfCheckGPT samples for a CPU-friendly runtime. Results
-will not match the paper's reported accuracy/throughput numbers (much smaller
-models) but exercise the same real code paths as the full run.
+reduces batch sizes / SelfCheckGPT samples for a CPU-friendly runtime. This is
+the run whose checked-in output lives in the repo-root `results/` folder and
+is reported in main.tex Sections IV-A through IV-C.
 
 ## Research-paper-scale run (`--paper`), sized for a free single-T4 GPU
 
@@ -154,9 +122,10 @@ without OOM-ing:
 | Embedder (RAG) | `BGE-small-en-v1.5` | ~130 MB | Lightweight retrieval embeddings |
 
 ```bash
+cd benchmark
 pip install -r requirements.txt
-python main.py --paper --total-prompts 100                 # 1.5B generator + judge, T4-friendly
-python main.py --paper --strong-judge --total-prompts 100  # + a second judging pass with the 3B model
+python main.py --paper --total-prompts 100 --output-dir ../results_paper                 # 1.5B generator + judge, T4-friendly
+python main.py --paper --strong-judge --total-prompts 100 --output-dir ../results_paper  # + a second judging pass with the 3B model
 ```
 
 `--paper` forces `--backend transformers` and sets `batch_sizes=[1, 4]`. Note
@@ -164,7 +133,9 @@ that `run_benchmark.py` re-runs the full dataset once per batch size (it's an
 independent variable, not a speed optimization), so `--paper`'s two batch
 sizes roughly double the wall-clock time versus `--lite`'s single batch size —
 budget accordingly (e.g. ~100-150 prompts fits comfortably in a few hours on a
-free T4; 500 prompts does not, see "Limitations" below).
+free T4; 500 prompts does not, see "Limitations" below). This is the run whose
+checked-in output lives in the repo-root `results_paper/` folder and is
+reported in main.tex Section IV-D.
 
 `--strong-judge` requires `--paper` (it uses `config.model.judge_model_strong`,
 which is empty by default) and writes its own
@@ -174,30 +145,30 @@ identical generated text without regenerating anything.
 
 ## Running on Google Colab
 
-`Hallucination_Benchmark_Colab.ipynb` is a self-contained notebook that: (1)
-uploads/clones this `benchmark/` folder onto a Colab GPU runtime, (2) installs
+`benchmark/Hallucination_Benchmark_Colab.ipynb` is a self-contained notebook that: (1)
+uploads/clones the `benchmark/` folder onto a Colab GPU runtime, (2) installs
 dependencies (without touching Colab's preinstalled GPU-matched `torch`), (3)
 lets you pick `--mock` / `--lite` / `--paper` / `--paper --strong-judge`, and
 (4) displays and zips up the results for download. Open it in Colab, set
-`Runtime → Change runtime type → T4 GPU`, and run the cells top to bottom.
-
-Results are written to `results/`: `raw_results.csv`, `accuracy_metrics.csv`,
-`strong_judge_results.csv` / `strong_judge_accuracy_metrics.csv` (only with
-`--strong-judge`), `paired_ttests.csv`, `anova_results.csv`, and `plots/`.
+`Runtime → Change runtime type → T4 GPU`, and run the cells top to bottom. The
+`results.zip`/`results_paper.zip` it produces are what get extracted into the
+repo-root `results/`/`results_paper/` folders checked into this repository.
 
 ## Reports and analysis
 
-- `results/plots/pareto_frontier.png` — F1 accuracy vs. `detection_overhead_ms`
-  (log-scale x-axis, lower = cheaper) for all three paradigms; the
-  Pareto-dominant paradigm sits toward the top-left.
-- `results/plots/ttft_distribution.png` — sanity-check that baseline
-  time-to-first-token is paradigm-independent (detection happens *after*
-  generation, so this should look identical across paradigms).
-- `results/Benchmark_Report.docx` — a generated Word report covering the
-  models/config used, procedure, accuracy + statistical-significance tables,
-  conclusions, a Big-O time/space complexity analysis per paradigm, and an
-  "Experimental Scale and Limitations" section reconciling the theoretical
-  complexity terms with the measured `detection_overhead_ms`/memory numbers.
+- `results/plots/pareto_frontier.png` / `results_paper/plots/pareto_frontier.png` — F1
+  accuracy vs. `detection_overhead_ms` (log-scale x-axis, lower = cheaper) for all three
+  paradigms; the Pareto-dominant paradigm sits toward the top-left.
+- `results/plots/ttft_distribution.png` / `results_paper/plots/ttft_distribution.png` —
+  sanity-check that baseline time-to-first-token is paradigm-independent (detection happens
+  *after* generation, so this should look identical across paradigms).
+- `results/Benchmark_Report.docx` (generated at runtime, git-ignored) — a Word report
+  covering the models/config used, procedure, accuracy + statistical-significance tables,
+  conclusions, a Big-O time/space complexity analysis per paradigm, and an "Experimental
+  Scale and Limitations" section reconciling the theoretical complexity terms with the
+  measured `detection_overhead_ms`/memory numbers.
+- `main.tex` — the write-up of all of the above, including the `--strong-judge` 3B-judge
+  ablation (Section IV-D) and the cross-scale Discussion/Recommendation (Section IV-E).
 
 ## Limitations
 
