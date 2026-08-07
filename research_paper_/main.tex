@@ -7,27 +7,43 @@
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
-\usepackage{booktabs} % Added for better table formatting later
-\usepackage{array}    % for controlled column widths / paragraph columns
-\usepackage{makecell} % for wrapped, multi-line table cells
-\usepackage{placeins} % \FloatBarrier keeps figures from drifting past the text describing the next one
-\renewcommand{\arraystretch}{1.15} % a bit of extra row padding in every table
-\setlength{\tabcolsep}{5pt}        % slightly tighter column padding so tables fit the column width
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{makecell}
+\usepackage{placeins}
+\usepackage{float}
+\usepackage{balance}
+\renewcommand{\arraystretch}{1.15}
+\setlength{\tabcolsep}{5pt}
+\setlength{\textfloatsep}{6pt plus 2pt minus 3pt}
+\setlength{\floatsep}{6pt plus 2pt minus 2pt}
+\setlength{\intextsep}{6pt plus 2pt minus 2pt}
+\setlength{\dbltextfloatsep}{6pt plus 2pt minus 3pt}
+\setlength{\dblfloatsep}{6pt plus 2pt minus 2pt}
+\renewcommand{\topfraction}{0.95}
+\renewcommand{\bottomfraction}{0.4}
+\renewcommand{\textfraction}{0.05}
+\renewcommand{\floatpagefraction}{0.8}
+\renewcommand{\dbltopfraction}{0.95}
+\renewcommand{\dblfloatpagefraction}{0.8}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 
 \begin{document}
 
-\title{Comparative Analysis and Benchmark of Time and Space Complexity in LLM Hallucination Detection Algorithms}
+\title{Accuracy, Latency, and Memory in LLM Hallucination Detection: A Controlled Comparative Benchmark}
 
-\author{\IEEEauthorblockN{Rojin Dhami}
-\IEEEauthorblockA{\textit{Department of Electronics and Computer Engineering} \\
+\author{
+\IEEEauthorblockN{Rojin Dhami}
+\IEEEauthorblockA{
+\textit{Department of Electronics and Computer Engineering} \\
 \textit{Thapathali Engineering Campus}\\
 Kathmandu, Nepal \\
 rojindhami@gmail.com}
 \and
 \IEEEauthorblockN{Sandeep Khadka}
-\IEEEauthorblockA{\textit{Department of Electronics and Computer Engineering} \\
+\IEEEauthorblockA{
+\textit{Department of Electronics and Computer Engineering} \\
 \textit{Thapathali Engineering Campus}\\
 Kathmandu, Nepal \\
 sandeepkhadka527@gmail.com}
@@ -36,107 +52,127 @@ sandeepkhadka527@gmail.com}
 \maketitle
 
 \begin{abstract}
-Large Language Models (LLMs) are increasingly deployed in critical applications, yet they remain prone to hallucinations. While recent literature has proposed various detection mechanisms, evaluations have predominantly focused on accuracy metrics such as precision, recall, and F1-score, largely ignoring the computational overhead of these methods. This paper presents a comparative analysis and benchmark of three prominent hallucination detection paradigms: SelfCheckGPT, Retrieval-Augmented Generation (RAG) verification, and LLM-as-a-Judge. We argue that efficiency metrics are not mere implementation details, but primary outcomes that determine real-world viability, and we support this argument with an open-source benchmarking harness rather than theoretical analysis alone. The harness is run end-to-end on a stratified 100-prompt sample drawn from HaluEval and TruthfulQA, on a single free-tier 16GB T4 GPU, at two model scales (Qwen2.5-0.5B-Instruct and Qwen2.5-1.5B-Instruct, each shared across the generator and same-size-judge roles), measuring Time-To-First-Token (TTFT), end-to-end latency, and throughput for time complexity, and peak VRAM, KV-cache footprint, and FAISS vector-store memory for space complexity, alongside F1/precision/recall computed against a lexical-overlap ground-truth heuristic. The results show that RAG verification dominates the accuracy-versus-cost Pareto frontier, matching SelfCheckGPT's F1 (approximately 0.79--0.84) at roughly three orders of magnitude lower detection overhead (16--19~ms vs. 21--37~s per prompt); LLM-as-a-Judge exhibits high precision but low recall, which caps its F1 well below the other two paradigms; and the cost ordering RAG~$\ll$~LLM-as-Judge~$\ll$~SelfCheckGPT is statistically significant (one-way ANOVA, $p < 10^{-149}$; pairwise paired $t$-tests, $p < 10^{-56}$) and stable across both model scales, empirically confirming the paradigms' theoretical Big-O cost ordering. These measurements are translated into a concrete decision framework for selecting a hallucination detection strategy under a given latency or memory budget.
+Large Language Models (LLMs) are increasingly deployed in critical applications, yet they remain prone to generating hallucinations. While recent literature proposes various detection mechanisms, evaluations predominantly focus on accuracy metrics, largely ignoring the computational overhead that dictates real-world viability. This paper addresses this gap by presenting a controlled comparative benchmark of three prominent hallucination detection paradigms: SelfCheckGPT, Retrieval-Augmented Generation (RAG) verification, and LLM-as-a-Judge. Using an open-source benchmarking harness, we evaluate these methods end-to-end on a stratified 100-prompt sample from HaluEval and TruthfulQA across two model scales (0.5B and 1.5B parameters) on a constrained 16 GB GPU. We measure time-to-first-token (TTFT) proxies, latency, throughput, peak VRAM, KV-cache footprints, and vector-store memory alongside standard accuracy metrics. The empirical results suggest that RAG verification occupies a highly favorable region of the accuracy-versus-cost Pareto frontier, achieving F1-scores comparable to SelfCheckGPT ($\approx$0.79--0.84) while exhibiting detection overhead approximately three orders of magnitude lower (16--19 ms vs. 21--37 s). Conversely, LLM-as-a-Judge demonstrates high precision but comparatively lower recall. The observed computational hierarchy (RAG $\ll$ LLM-as-a-Judge $\ll$ SelfCheckGPT) remains statistically significant and stable across the evaluated model scales. These findings offer an empirically grounded decision framework for selecting hallucination detection strategies under strict latency or memory budgets.
 \end{abstract}
 
 \begin{IEEEkeywords}
-Large Language Models, hallucination detection, computational complexity, Time-To-First-Token (TTFT), KV-cache, vector-store memory, benchmarking.
+Large Language Models, hallucination detection, computational complexity, estimated TTFT proxy, KV-cache, vector-store memory, benchmarking.
 \end{IEEEkeywords}
 
 \section{Introduction}
-Large Language Models (LLMs) now write code, draft legal summaries, answer medical questions, and sit behind customer-facing chatbots. That deployment has outpaced our ability to trust what these models say. A model can produce a fluent, well-formed sentence that is simply wrong, a phenomenon the field has settled on calling ``hallucination'' \cite{huang2023survey}. Two forms of the problem show up in practice: intrinsic hallucinations, where the output contradicts the source text it was supposed to summarize or answer from, and extrinsic hallucinations, where the model introduces claims that cannot be checked against any given source at all. In a chatbot answering trivia, a hallucination is an annoyance. In a system drafting a discharge summary or summarizing a legal filing, it is a liability.
 
-This has pushed hallucination detection from a research curiosity into something closer to a deployment requirement. Three approaches have accumulated the most attention. SelfCheckGPT \cite{manakul2023selfcheckgpt} takes a black-box, zero-resource approach: sample the model several times on the same prompt and check whether the answers agree. RAG verification, exemplified by FActScore \cite{min2023factscore} and RAGAS \cite{es2023ragas}, breaks the output into individual factual claims and retrieves supporting evidence for each from an external corpus. LLM-as-a-Judge \cite{zheng2023judging} sidesteps both of these and simply asks a second, often larger, model to read the output and judge whether it is faithful to the source.
+Large Language Models (LLMs) are increasingly integral to automated code generation, legal summarization, medical question-answering, and customer-facing conversational agents. Despite their fluency, these models frequently generate factually incorrect or ungrounded statements, a phenomenon broadly classified as hallucination \cite{huang2023survey}. Hallucinations manifest in two primary forms: intrinsic, where the output contradicts the provided source context, and extrinsic, where the model introduces unverifiable claims. While benign in trivial applications, hallucinations pose severe liability risks in high-stakes domains, elevating hallucination detection to a critical deployment requirement in safety-sensitive environments.
 
-Each of these methods has been validated on accuracy benchmarks, usually reported as precision, recall, F1, or correlation with human judgment. However, treating computational cost as an afterthought is a critical flaw. Metrics such as Time-To-First-Token (TTFT), generation throughput, KV-cache memory footprint, and vector-store memory are not side notes; they are the actual outcomes that justify this benchmark and dictate whether a detection method is viable in production. For instance, a detector that improves F1-score by 5\% but doubles TTFT or exceeds available VRAM due to KV-cache bloat is practically useless for real-time applications. SelfCheckGPT's consistency check requires generating $N$ full samples, multiplying both latency and the KV-cache memory the model must hold. RAG verification adds an embedding pass and a nearest-neighbor search over a vector index, which must reside in memory. LLM-as-a-Judge requires a complete additional forward pass through a separate model. None of these costs are free, and none are reported consistently in the papers that introduce these methods.
+Current detection methodologies predominantly fall into three paradigms. SelfCheckGPT \cite{manakul2023selfcheckgpt} employs a zero-resource, black-box approach by sampling multiple responses to assess consistency. Retrieval-Augmented Generation (RAG) verification, exemplified by FActScore \cite{min2023factscore} and RAGAS \cite{es2023ragas}, decomposes outputs into atomic claims and retrieves corroborating evidence from external corpora. Alternatively, LLM-as-a-Judge \cite{zheng2023judging} leverages a secondary, often larger, model to evaluate the factual fidelity of the generated text. 
 
-A benchmark that reports these costs is only as credible as the labels it is measured against. A recurring weakness in this space is that efficiency numbers and accuracy numbers are quietly computed on different, loosely specified conditions -- different gold labels, different hardware, different decoding settings -- which makes cross-paradigm comparison unreliable even when each individual number is correct. This paper is designed to close that gap directly: every method in this study is run on the same generated outputs, judged against the same gold labels, on the same hardware, under decoding settings we fix and report in full (Section III).
+Although these methods are rigorously evaluated for accuracy using precision, recall, and F1-scores, their computational overhead is frequently treated as a secondary consideration. Metrics such as Time-To-First-Token (TTFT), generation throughput, KV-cache memory footprint, and vector-store utilization are fundamental determinants of production viability. A detection mechanism that yields marginal accuracy improvements at the expense of substantially increased latency or VRAM consumption is generally impractical for real-time deployments. Furthermore, existing benchmarks often compute efficiency and accuracy under disparate conditions---utilizing different hardware, decoding parameters, and ground-truth labels---rendering cross-paradigm comparisons challenging.
 
-Our contributions are threefold:
+To address this gap, this study introduces a controlled comparative benchmark that evaluates computational complexity as a primary outcome. Every paradigm is executed on identical generated outputs, judged against uniform gold labels, and constrained by the same hardware and decoding configurations. The specific contributions of this paper are threefold:
 \begin{itemize}
-    \item A measurement methodology for hallucination detection algorithms that establishes time complexity (TTFT, latency, throughput) and space complexity (peak VRAM, KV-cache size, and vector-store memory footprint) as the primary research outcomes, applied consistently across all three paradigms, on a shared, automatically-derived gold-label set (Section III-C).
-    \item An open-source benchmarking harness that empirically validates this methodology by running all three paradigms end-to-end on the same 100-prompt HaluEval/TruthfulQA sample, at two model scales (0.5B and 1.5B parameters, Section III-B), reporting detection accuracy and computational cost side by side under matched hardware and decoding conditions, rather than in isolation (Section IV).
-    \item A practical decision framework, derived directly from the measured Pareto frontier of accuracy versus compute (Section III-H, Section IV-E), that maps a given latency or memory budget to a recommended detection strategy, aimed at practitioners deploying these systems rather than at benchmark leaderboards.
+    \item A rigorous measurement methodology that establishes time complexity (estimated TTFT proxy, latency, throughput) and space complexity (peak VRAM, KV-cache size, vector-store footprint) as primary evaluation metrics, applied consistently across all three paradigms (Section III).
+    \item An open-source benchmarking harness that empirically validates this methodology by executing end-to-end evaluations on a shared HaluEval/TruthfulQA dataset across two model scales (0.5B and 1.5B parameters), reporting accuracy and computational cost under strictly matched conditions (Section IV).
+    \item A practical decision framework derived from the empirical Pareto frontier of accuracy versus compute, mapping specific latency and memory constraints to optimal detection strategies for practitioners (Section IV).
 \end{itemize}
 
+The remainder of this paper is organized as follows: Section II reviews related work in hallucination detection and efficient inference. Section III details the proposed methodology and experimental design. Section IV presents the empirical results and statistical analysis. Section V discusses the practical implications and limitations, followed by the conclusion in Section VI.
+
 \section{Literature Review}
-This review covers three areas that the rest of the paper draws on: how hallucination is defined, the foundational constraints of computational efficiency in LLM inference, and how the three detection paradigms operate within these strict computational boundaries.
+
+This section reviews the taxonomy of LLM hallucinations, the foundational constraints of computational efficiency in autoregressive inference, and the operational mechanics of prevailing detection paradigms.
 
 \subsection{Hallucination in Large Language Models}
-Huang et al. \cite{huang2023survey} split LLM hallucinations into intrinsic and extrinsic categories. An intrinsic hallucination directly contradicts the input the model was given, while an extrinsic hallucination adds information the source neither confirms nor denies. Huang et al. also note that hallucination rates tend to rise with the length and open-endedness of the generation task. This matters because it means detection methods have to work at the level of the whole output, not just single tokens, which inherently scales their computational cost proportionally. Detection therefore has to be both accurate and cheap enough to run on every output a deployed system produces. We adopt this intrinsic/extrinsic taxonomy directly as the operational definition behind our gold labels (Section III-C).
+
+Huang et al. \cite{huang2023survey} categorize LLM hallucinations into intrinsic and extrinsic variants. Intrinsic hallucinations directly contradict the provided input context, whereas extrinsic hallucinations introduce ungrounded information that the source neither confirms nor denies. The prevalence of these errors correlates positively with generation length and task open-endedness. Consequently, effective detection mechanisms typically operate at the sequence level, which inherently increases their computational requirements. This study adopts this intrinsic/extrinsic taxonomy to construct stratified evaluation datasets (Section III).
 
 \subsection{Computational Efficiency in LLM Inference}
-To measure computational costs consistently, we anchor our methodology in the efficient-inference literature, treating its core metrics as the primary outcomes of our evaluation. Zhou et al. \cite{zhou2024efficient} survey the field and establish Time-To-First-Token (TTFT) and end-to-end generation latency as the standard time complexity metrics, alongside throughput (tokens per second) for batched workloads. On the space complexity side, peak memory footprint is the standard metric. Kwon et al. \cite{kwon2023efficient} detail how KV-cache memory is allocated during decoding, introducing PagedAttention to reduce the fragmentation that occurs when many sequences are generated concurrently. This is precisely the situation SelfCheckGPT creates when sampling $N$ sequences. Furthermore, for retrieval-based methods, the memory footprint of the vector-store (the indexed embeddings of the knowledge corpus) becomes a dominant space complexity factor, independent of the LLM's own VRAM usage. This connection between inference-efficiency constraints and hallucination detection is the basis for the measurement protocol we use in Section III.
 
-\subsection{Hallucination Detection Paradigms and Their Computational Footprints}
+Evaluating detection overhead necessitates anchoring metrics in the efficient-inference literature. Zhou et al. \cite{zhou2024efficient} establish Time-To-First-Token (TTFT) and end-to-end latency as standard temporal metrics, alongside throughput for batched workloads. Spatially, peak memory footprint dominates resource constraints. Kwon et al. \cite{kwon2023efficient} demonstrate that KV-cache allocation during autoregressive decoding introduces severe memory fragmentation, a problem exacerbated when generating multiple concurrent sequences. For retrieval-augmented pipelines, the vector-store memory footprint emerges as an independent spatial constraint, decoupled from the LLM's native VRAM requirements.
 
-\textbf{Self-consistency and SelfCheckGPT.} Manakul et al. \cite{manakul2023selfcheckgpt} introduced SelfCheckGPT as a black-box method that samples the model repeatedly. The core idea is that if a model knows a fact, resampling should produce agreeing answers, while a hallucinated claim will vary. What the method buys in simplicity, it spends in compute: detecting a single hallucination requires generating $N$ additional full sequences. Each of those sequences needs its own KV-cache during decoding. For long outputs or large $N$, that memory cost is not incidental; it is often the dominant space complexity constraint of running the detector at all, directly impacting throughput.
+\subsection{Hallucination Detection Paradigms}
 
-\textbf{RAG verification.} Min et al. \cite{min2023factscore} proposed FActScore, which decomposes a generated passage into atomic factual statements and checks each against a trusted knowledge source via retrieval. Es et al. \cite{es2023ragas} built on this with RAGAS, automating evaluation of retrieval-augmented pipelines. The cost profile here is distinct: the dominant expense is repeated retrieval, and the space cost is the size of the vector-store sitting in memory, which scales with the knowledge corpus. Recent works attempt to optimize this: Halu-J \cite{wang2024haluj} introduces a critique-based judge to select pertinent evidence and reduce irrelevant retrieval overhead, while Bi'an \cite{jiang2025bian} proposes lightweight, domain-optimized judge models to mitigate the heavy footprint of traditional RAG verification. However, the fundamental vector-store memory and embedding latency costs remain inherent to the paradigm.
+\textbf{Self-Consistency and SelfCheckGPT.} Manakul et al. \cite{manakul2023selfcheckgpt} proposed SelfCheckGPT, which assesses factual reliability through repeated sampling. While conceptually simple, this approach introduces substantial computational overhead. Detecting a single hallucination requires generating $N$ additional full sequences, increasing both latency and the KV-cache memory required to maintain concurrent decoding states. For extended outputs, this spatial overhead often becomes a primary bottleneck.
 
-\textbf{LLM-as-a-Judge.} Zheng et al. \cite{zheng2023judging} showed that a sufficiently capable LLM can judge the quality of another model's output with human-level agreement. Applied to hallucination detection, the judge model reads the generator's output and flags unsupported claims. This approach needs no vector database and no repeated sampling, keeping its space complexity relatively low. Its cost concentrates entirely in time: each check is a full forward pass, creating a severe throughput bottleneck and high TTFT if the judge model is large. Recognizing this, recent work like LLM-Check \cite{sriramanan2024llmcheck} bypasses full forward passes by analyzing internal hidden states and attention maps of an auxiliary model, achieving speedups of up to 45x--450x. This demonstrates that the community is actively battling the exact throughput and latency penalties that standard LLM-as-a-Judge incurs.
+\textbf{RAG Verification.} Methods such as FActScore \cite{min2023factscore} and RAGAS \cite{es2023ragas} decompose generated text into atomic claims and verify them against trusted knowledge bases. The computational profile is dominated by repeated embedding generation and nearest-neighbor retrieval. While recent optimizations like Halu-J \cite{wang2024haluj} and Bi'an \cite{jiang2025bian} attempt to reduce irrelevant retrieval overhead via critique-based judges or lightweight domain-specific models, the latency of vector database queries and the persistent memory footprint of the index remain characteristic of this paradigm.
+
+\textbf{LLM-as-a-Judge.} Zheng et al. \cite{zheng2023judging} demonstrated that capable LLMs can evaluate the factual fidelity of peer models. Applied to hallucination detection, this paradigm circumvents vector databases and repeated sampling, maintaining a low spatial footprint. However, it concentrates costs temporally: each evaluation requires a complete autoregressive forward pass through the judge model, introducing throughput constraints and elevated TTFT. Innovations like LLM-Check \cite{sriramanan2024llmcheck} attempt to bypass full forward passes by analyzing internal hidden states, reflecting ongoing efforts to mitigate these latency constraints.
 
 \subsection{Summary and Research Gap}
-Taken together, the literature establishes three things. First, hallucination detection must operate on whole outputs, which is inherently expensive. Second, the three dominant paradigms each carry distinct, non-trivial computational costs: KV-cache growth for SelfCheckGPT, persistent vector-store memory for RAG verification, and throughput/TTFT penalties for LLM-as-a-Judge. Third, while recent advances like LLM-Check \cite{sriramanan2024llmcheck}, Halu-J \cite{wang2024haluj}, and Bi'an \cite{jiang2025bian} acknowledge and attempt to mitigate these costs, they do not provide a unified, cross-paradigm empirical baseline.
 
-This is the gap this paper addresses. There is no published benchmark that measures SelfCheckGPT, RAG verification, and LLM-as-a-Judge on the same hardware, with the same workload, against the same gold-standard hallucination labels, using TTFT, throughput, KV-cache, and vector-store memory as the primary outcomes rather than footnotes. Existing surveys catalog methods by accuracy but do not report these critical efficiency metrics under matched conditions. Separately, the efficient-inference literature has built detailed tooling for measuring these quantities but has applied it to generation workloads, not detection algorithms. A practitioner trying to pick a detection method for a system with a fixed latency budget or a single GPU has no empirical basis for that decision. This paper closes that gap by running all three methods under a shared, controlled measurement protocol, with labels, hardware, and decoding settings fixed in advance (Section III), and reports the accuracy-versus-compute trade-off directly.
+Existing literature indicates that hallucination detection is generally computationally demanding, with each paradigm exhibiting distinct temporal and spatial bottlenecks: KV-cache proliferation for SelfCheckGPT, persistent vector-store memory for RAG, and autoregressive latency for LLM-as-a-Judge. Although recent studies propose localized optimizations, no unified empirical baseline evaluates these paradigms under strictly controlled, cross-comparable conditions. Current surveys catalog accuracy but omit critical efficiency metrics, while efficient-inference tooling is rarely applied to detection algorithms. This paper bridges this gap by executing all three paradigms within a shared measurement protocol, treating computational overhead as a primary evaluation outcome rather than a secondary footnote.
 
 \section{Methodology}
+
 This section details the theoretical foundation, experimental design, gold-label construction, retrieval corpus, prompt standardization, data collection procedure, and analytical tools used to benchmark the computational and accuracy trade-offs of the three hallucination detection paradigms, as implemented in the accompanying open-source benchmarking harness.
 
 \subsection{Theoretical Framework and Justification}
-Our theoretical framework posits that the computational overhead of hallucination detection is not a mere implementation detail, but a fundamental, algorithmic property that dictates real-world viability. We model the cost of each paradigm through the lens of efficient inference literature \cite{zhou2024efficient, kwon2023efficient}:
+
+Our theoretical framework posits that the computational overhead of hallucination detection is not merely an implementation detail, but an algorithmic property that dictates real-world viability. We model the cost of each paradigm through the lens of efficient inference literature \cite{zhou2024efficient, kwon2023efficient}. Throughout, we are careful to separate the \emph{theoretical (asymptotic) complexity} of a paradigm from its \emph{implementation complexity} (the concrete algorithm and data structure a given library uses), its \emph{observed runtime} (wall-clock behavior on our specific hardware and software stack), and its \emph{memory consumption} (measured or estimated peak resource usage); Section IV reports the latter two as empirical measurements, while this subsection is concerned only with the former two.
+
 \begin{itemize}
     \item \textbf{SelfCheckGPT (Sampling Overhead):} The time complexity scales as $\mathcal{O}(N \cdot L)$, where $N$ is the number of sampled sequences and $L$ is the sequence length. The space complexity is dominated by the KV-cache, which must retain the key and value states for all $N$ concurrent sequences during decoding, leading to a memory footprint of $\mathcal{O}(N \cdot L \cdot d_{model})$.
-    \item \textbf{RAG Verification (Retrieval Overhead):} The time complexity is driven by the embedding pass $\mathcal{O}(C)$ for $C$ atomic claims, plus the nearest-neighbor search $\mathcal{O}(\log V)$ over a vector index of size $V$. The space complexity is decoupled from the LLM's VRAM and is instead dominated by the vector-store memory footprint, which scales as $\mathcal{O}(V \cdot d_{embed})$, where $d_{embed}$ is the embedding dimension.
-    \item \textbf{LLM-as-a-Judge (Forward Pass Overhead):} The time complexity is characterized by a full autoregressive forward pass of the judge model, heavily impacting Time-To-First-Token (TTFT) and overall throughput. The space complexity is relatively predictable, requiring only the standard KV-cache for a single sequence, but at the cost of loading a second model's weights into VRAM if not shared with the generator.
+    \item \textbf{RAG Verification (Retrieval Overhead):} We decompose this paradigm's cost into four distinct stages rather than a single term. (1)~\emph{Embedding generation:} encoding $C$ atomic claims costs $\mathcal{O}(C)$ forward passes through the embedding model (each itself a fixed-cost operation for a given embedding model and sequence length). (2)~\emph{Vector indexing:} building a FAISS \texttt{IndexFlatIP} index over $V$ passages costs $\mathcal{O}(V \cdot d_{embed})$ to store and, if built once, $\mathcal{O}(V \cdot d_{embed})$ time to populate; this cost is amortized across all queries in our fixed-corpus setting (Section III-D). (3)~\emph{Retrieval:} \texttt{IndexFlatIP} performs an \emph{exact, exhaustive} nearest-neighbor search---it computes the inner product between each query embedding and every one of the $V$ indexed vectors---so its search complexity is $\mathcal{O}(V \cdot d_{embed})$ per query (equivalently $\mathcal{O}(C \cdot V \cdot d_{embed})$ for all $C$ claims in a response), \emph{not} logarithmic in $V$. This is distinct from approximate nearest-neighbor (ANN) indexes such as HNSW, IVF, IVF-PQ, ScaNN, or Annoy, which trade exactness for expected sub-linear (e.g., poly-logarithmic) query time by searching only a subset of the index depending on the indexing strategy and its tuning parameters; because our harness uses \texttt{IndexFlatIP} rather than any of these ANN structures, no logarithmic or sub-linear retrieval complexity applies to the results in Section IV. (4)~\emph{Verification:} comparing each claim against its retrieved evidence is $\mathcal{O}(1)$ per claim given the retrieved passages, so overall verification cost is $\mathcal{O}(C)$. No reranking stage is used in the evaluated pipeline. The space complexity is decoupled from the LLM's VRAM and is instead dominated by the vector-store memory footprint, which scales as $\mathcal{O}(V \cdot d_{embed})$, where $d_{embed}$ is the embedding dimension.
+    \item \textbf{LLM-as-a-Judge (Forward Pass Overhead):} The time complexity is characterized by a full autoregressive forward pass of the judge model, substantially impacting first-token latency and overall throughput. The space complexity is relatively predictable, requiring only the standard KV-cache for a single sequence, but at the cost of loading a second model's weights into VRAM if not shared with the generator.
 \end{itemize}
-This framework justifies our selection of metrics: TTFT, throughput, peak VRAM, KV-cache utilization, and vector-store memory are the direct, measurable manifestations of these theoretical bounds.
+
+This framework motivates the selection of metrics: an estimated TTFT proxy (Section III-B), throughput, peak VRAM, KV-cache utilization, and vector-store memory are the metrics we use to approximate these theoretical bounds empirically; Section IV-D discusses the extent to which the observed cost ordering is consistent with this theoretical framework, and the limits on what a benchmark of this scope can establish about asymptotic behavior.
 
 \subsection{Research Design}
+
 We employ a controlled, quantitative experimental design to isolate the computational costs of each detection paradigm while holding the underlying generation task, hardware, and decoding configuration constant. The design below reflects the benchmark harness as actually implemented and executed, rather than an idealized, unconstrained configuration.
+
 \begin{itemize}
     \item \textbf{Independent Variables:} (1) Detection Paradigm (SelfCheckGPT, RAG Verification, LLM-as-a-Judge), (2) Output Sequence Length (short: $<$100 tokens, medium: 100--300 tokens, long: $>$300 tokens), (3) Batch Size (1 for the lightweight configuration; 1 and 4 for the research-paper-scale configuration), and (4) Model Scale (0.5B vs. 1.5B parameters, see below).
-    \item \textbf{Dependent Variables (Outcomes):} Time complexity (TTFT in milliseconds, end-to-end latency, throughput in tokens/second) and space complexity (peak VRAM in MB, KV-cache size in MB, vector-store memory in MB), alongside the primary accuracy metrics (precision, recall, F1-score against the gold hallucination labels defined in Section III-C).
+    \item \textbf{Dependent Variables (Outcomes):} Time complexity (estimated TTFT proxy in milliseconds, end-to-end latency, throughput in tokens/second) and space complexity (peak VRAM in MB, KV-cache size in MB, vector-store memory in MB), alongside the primary accuracy metrics (precision, recall, F1-score against the gold hallucination labels defined in Section III-C).
     \item \textbf{Models:} Two configurations are reported. A lightweight configuration (\texttt{-{}-lite}) uses Qwen2.5-0.5B-Instruct as both the generator and the LLM-as-a-Judge judge (the generator's weights are reused for judging, at zero extra VRAM cost) and BAAI/bge-small-en-v1.5 as the embedding model, with $N=3$ SelfCheckGPT samples. A research-paper-scale configuration (\texttt{-{}-paper}) swaps in Qwen2.5-1.5B-Instruct for the same generator/judge roles (again weight-shared), keeps BAAI/bge-small-en-v1.5 as the embedder, and increases SelfCheckGPT's sample budget to $N=5$; a heavier Qwen2.5-3B-Instruct judge can optionally be loaded afterward, once the primary engines are freed, for a second judging pass. Both configurations are reported so that the effect of model scale on the measured cost ordering can itself be checked (Section IV-D).
     \item \textbf{Hardware and Software Environment:} Both reported runs execute on a single free-tier NVIDIA T4 GPU (16GB VRAM, e.g., a Google Colab free-tier instance), using the HuggingFace \texttt{transformers} backend in fp16. The benchmark harness also supports a vLLM backend with native PagedAttention KV-cache introspection for dedicated-GPU deployments (Section III-G), but both reported runs use the \texttt{transformers} backend to fit within free-tier session-time and memory constraints; consequently, the \texttt{transformers} backend processes prompts within a batch sequentially rather than as a single fused GPU batch, and KV-cache is reported as a formula-based estimate (Section III-G) rather than a measurement introspected from vLLM's block manager. This substitution is discussed as an explicit scale/hardware limitation in Section IV-E.
-    \item \textbf{Decoding Settings:} Baseline generation uses \texttt{do\_sample=True} with up to 300 new tokens, without a fixed per-call random seed; TTFT is approximated as total generation latency divided by the number of output tokens, since the offline \texttt{generate} call used by the \texttt{transformers} backend does not expose native per-token streaming timestamps. SelfCheckGPT's $N$ additional samples reuse this same sampling configuration on the same prompt. LLM-as-a-Judge and RAG verification are both run against the single, shared baseline generation, so all three paradigms are always judging the same generated text for a given prompt.
+    \item \textbf{Decoding Settings:} Baseline generation uses \texttt{do\_sample=True} with up to 300 new tokens, without a fixed per-call random seed. Because the offline \texttt{generate} call used by the \texttt{transformers} backend does not expose native per-token streaming timestamps, we do not measure true streaming Time-To-First-Token; instead, we report an \emph{Estimated TTFT Proxy} (henceforth ``TTFT proxy''), defined as total generation latency divided by the number of output tokens. This proxy is an approximation of first-token latency and should not be interpreted as a direct streaming measurement. SelfCheckGPT's $N$ additional samples reuse this same sampling configuration on the same prompt. LLM-as-a-Judge and RAG verification are both run against the single, shared baseline generation, so all three paradigms are always judging the same generated text for a given prompt.
 \end{itemize}
 
 \subsection{Dataset and Gold-Label Construction}
+
 We draw prompts from a stratified sample of 100 items, split evenly between HaluEval (question-answering subset) and TruthfulQA, so that each source contributes 50 prompts (seed$=42$ for both the sampling and the shuffle that interleaves the two sources) and the combined set preserves the intrinsic/extrinsic hallucination split reported in the source datasets. Both datasets are loaded directly from the HuggingFace Hub at run time via the \texttt{datasets} library; because HaluEval has been re-hosted under a couple of different community repository names, the loader tries a short, explicit list of known repo/config/split combinations in order and fails loudly (rather than silently substituting mock data) if none resolve, so that a reported run is never silently backed by synthetic data.
 
-The labels shipped with HaluEval and TruthfulQA describe their own reference or best/incorrect answers; they do not directly describe whether a \emph{new} response generated by our own generator model hallucinates. We therefore derive gold labels for the actual object being judged -- the generator's own output -- as follows:
+HaluEval and TruthfulQA differ substantially in task structure, annotation methodology, and hallucination prevalence: HaluEval's question-answering subset supplies a knowledge snippet alongside each question and constructs its \texttt{hallucinated\_answer} field by prompting an LLM to fabricate a plausible-but-wrong answer that contradicts that snippet, so its hallucinations are intrinsic and grounded against a known reference; TruthfulQA, by contrast, poses questions deliberately designed to elicit common human misconceptions, and its incorrect answers are extrinsic in the sense that they are not grounded in any snippet provided alongside the question but rather reflect widely held false beliefs. The two datasets were also built with different annotation pipelines (LLM-generated contrastive answers for HaluEval vs. curated human-written misconceptions for TruthfulQA) and, as Section IV-A/IV-D report, produce different positive (hallucination) base rates once passed through our lexical-overlap heuristic (94\%/82\% for HaluEval vs. 50\%/46\% for TruthfulQA at the two model scales). We combine them into a single 100-prompt benchmark, rather than evaluating each in isolation, for three reasons specific to this paper's goal of comparing detection paradigms rather than characterizing any one dataset in isolation: (1) intrinsic and extrinsic hallucinations are the two categories Huang et al. \cite{huang2023survey} identify as jointly constituting the hallucination problem (Section II-A), so a benchmark restricted to only one category would understate the generality of any accuracy or cost conclusion; (2) SelfCheckGPT, RAG verification, and LLM-as-a-Judge are, by design, agnostic to whether a hallucination is intrinsic or extrinsic---none of the three detectors receives the source-dataset label as input---so combining the two datasets tests whether each paradigm's relative cost and accuracy ordering holds across both hallucination types rather than being an artifact of one; and (3) the 50/50 stratified split keeps either source from dominating the combined base rate, so the reported aggregate F1/precision/recall figures in Section IV are not simply a restatement of one dataset's own label distribution. The corresponding limitation is that our combined-set accuracy numbers are a weighted average over two dissimilar label distributions and cannot be disaggregated into a single, dataset-independent accuracy estimate; where this matters, Section IV-A and IV-D report the per-source base rates directly so the reader can judge each detector's behavior on the two components separately rather than relying on the pooled figure alone.
+
+The labels shipped with HaluEval and TruthfulQA describe their own reference or best/incorrect answers; they do not directly describe whether a \emph{new} response generated by our own generator model hallucinates. We therefore derive gold labels for the actual object being judged---the generator's own output---as follows:
+
 \begin{enumerate}
     \item For each of the 100 prompts, the configured generator model (Qwen2.5-0.5B- or Qwen2.5-1.5B-Instruct, Section III-B) produces one baseline response under the decoding settings in Section III-B.
     \item Each generated response is tagged intrinsic or extrinsic following the source-dataset heuristic of Huang et al. \cite{huang2023survey}: HaluEval items are treated as intrinsic (their hallucinated samples are constructed against a supplied knowledge snippet), and TruthfulQA items are treated as extrinsic (their incorrect answers are ungrounded, common misconceptions).
     \item A binary Hallucinated / Not Hallucinated ground-truth label is then assigned via a lexical-overlap heuristic: the generated response is labeled Hallucinated if it has greater token-set overlap (Jaccard similarity over whitespace-tokenized, lower-cased text) with the dataset's own \texttt{hallucinated\_answer} field than with its \texttt{reference\_answer} field, and Not Hallucinated otherwise.
 \end{enumerate}
-These heuristic labels, not the datasets' original reference answers, are the ground truth against which all three detectors are scored. We report this as a heuristic, and not a human-verified label, explicitly: it is a pragmatic, fully automatic stand-in for the human annotation or NLI-based labeling a larger-scale study would use, and its known biases (Section IV-E) bound the strength of the accuracy conclusions in Section IV.
+
+These heuristic labels, not the datasets' original reference answers, are the ground truth against which all three detectors are scored. We report this explicitly as a heuristic rather than a human-verified label: it is a pragmatic, fully automatic stand-in for the human annotation or NLI-based labeling a larger-scale study would use, and its known biases (Section IV-E) bound the strength of the accuracy conclusions in Section IV.
 
 \subsection{Retrieval Corpus Construction}
-The knowledge source used for RAG verification is a single, fixed, in-memory corpus so that retrieval conditions do not vary across prompts within a run. Rather than an external Wikipedia dump, the corpus is built directly from the reference answers already present in the 100-prompt evaluation set (Section III-C), giving an index of exactly 100 short passages. Each passage is embedded with BAAI/bge-small-en-v1.5 and indexed in FAISS using an exact, flat inner-product index (\texttt{IndexFlatIP}) over L2-normalized vectors, so retrieval is exact nearest-neighbor search rather than an approximate method such as HNSW; at this corpus size the two would be expected to behave near-identically, but the distinction matters for the $\mathcal{O}(\log V)$ search-complexity claim in Section III-A, which assumes the latter. The same corpus is used only for RAG verification's own claim-checking step; it is not reused to construct the gold labels in Section III-C, which are computed independently via the lexical-overlap heuristic.
+
+The knowledge source used for RAG verification is a single, fixed, in-memory corpus so that retrieval conditions do not vary across prompts within a run. Rather than an external Wikipedia dump, the corpus is built directly from the reference answers already present in the 100-prompt evaluation set (Section III-C), giving an index of exactly 100 short passages. Each passage is embedded with BAAI/bge-small-en-v1.5 and indexed in FAISS using an exact, flat inner-product index (\texttt{IndexFlatIP}) over L2-normalized vectors, consistent with the $\mathcal{O}(V \cdot d_{embed})$ exact-search complexity described in Section III-A; this is deliberately not an approximate nearest-neighbor (ANN) index such as HNSW, IVF, or ScaNN, so no sub-linear retrieval complexity applies at any corpus size, including the $V=100$ passages used here. Because $V$ is small in this benchmark, the absolute cost of exact search is negligible regardless of this distinction, but the distinction would become material at larger corpus sizes, where an ANN index would be the appropriate choice and would change the retrieval-stage complexity term accordingly (Section III-A). Retrieval for each claim returns its top-$k{=}3$ nearest passages by inner-product similarity; the same corpus is used only for RAG verification's own claim-checking step and is not reused to construct the gold labels in Section III-C, which are computed independently via the lexical-overlap heuristic.
 
 \subsection{Prompt Standardization Across Methods}
+
 To ensure that differences in measured accuracy and cost reflect the detection paradigm and not incidental prompt-engineering differences, we fix three things across all three methods: (1) a single generation prompt template used to produce the baseline response for every condition, so SelfCheckGPT's extra samples, the RAG verifier, and the judge all operate on the same underlying generated text; (2) a single instruction template per paradigm (one for SelfCheckGPT's consistency-sampling prompt, one for the judge's verdict prompt), used verbatim across all 100 prompts with no per-item customization; and (3) zero-shot instructions throughout, so no paradigm benefits from a larger or better-tuned few-shot context than another. RAG verification's atomic-claim step uses a regex sentence-boundary split as a lightweight proxy for full claim decomposition (e.g., the LLM-based decomposition used by FActScore \cite{min2023factscore}); this is a simplification we flag explicitly, since a true claim decomposer would change RAG verification's own time complexity by adding an extra decomposition pass.
 
 \subsection{Data Collection Procedure}
+
 Data collection is automated via a custom Python benchmarking harness designed to intercept and log hardware-level metrics at each stage of the detection pipeline. For each of the 100 prompts, the following procedure is executed:
+
 \begin{enumerate}
-    \item \textbf{Baseline Generation:} The generator produces a response under the fixed decoding settings (Section III-B) and fixed prompt template (Section III-E). We record the baseline TTFT and throughput.
+    \item \textbf{Baseline Generation:} The generator produces a response under the fixed decoding settings (Section III-B) and fixed prompt template (Section III-E). We record the baseline TTFT proxy and throughput.
     \item \textbf{Detection Execution:}
     \begin{itemize}
         \item \textit{SelfCheckGPT:} We trigger $N$ additional generations ($N=3$ for \texttt{-{}-lite}, $N=5$ for \texttt{-{}-paper}) using the same decoding settings. We measure the incremental VRAM spike via PyTorch's peak-memory allocator and estimate KV-cache growth analytically from batch size, sequence length, and model architecture (Section III-A's $\mathcal{O}(N \cdot L \cdot d_{model})$ formula), since the \texttt{transformers} backend used for both reported runs does not expose vLLM-style block-manager introspection.
         \item \textit{RAG Verification:} We split the output into sentence-level claims, embed them, and query the fixed FAISS index described in Section III-D. We record the embedding and retrieval latency separately and calculate the vector-store memory footprint as $V \times d_{embed} \times 4$ bytes (FP32 embeddings).
-        \item \textit{LLM-as-a-Judge:} We construct the fixed judge prompt and measure the latency and (approximated, per Section III-B) TTFT of the judge model's forward pass.
+        \item \textit{LLM-as-a-Judge:} We construct the fixed judge prompt and measure the latency and TTFT proxy (Section III-B) of the judge model's forward pass.
     \end{itemize}
-    \item \textbf{Metric Logging:} Peak VRAM is captured via \texttt{torch.cuda.max\_memory\_allocated()}. All latency measurements are preceded by 1 (\texttt{-{}-lite}) or 3 (\texttt{-{}-paper}) warm-up generations to mitigate cold-start GPU initialization effects.
-    \item \textbf{Accuracy Scoring:} Each detector's Hallucinated/Not Hallucinated verdict is compared against the gold labels from Section III-C to compute precision, recall, and F1-score.
+    \item \textbf{Metric Logging:} Peak VRAM is captured via \texttt{torch.cuda.max\_memory\_allocated()}. All latency measurements are preceded by 1 (\texttt{-{}-lite}) or 3 (\texttt{-{}-paper}) warm-up generations to mitigate cold-start GPU initialization effects. For every row we additionally log the mechanistic quantities that drive each paradigm's cost: the generator's baseline output length in tokens (shared across all three paradigms, since they all judge the same generation); for RAG verification, the number of atomic claims extracted and the number of passages retrieved per claim; for LLM-as-a-Judge, the constructed judge prompt length and the generated verdict length, both in tokens; and for SelfCheckGPT, the realized sample count $N$ and the mean token length of the additional sampled generations. These quantities are reported alongside \texttt{detection\_overhead\_ms} in Section IV so that latency differences between paradigms can be explained mechanistically rather than left as unexplained totals.
+    \item \textbf{Failure Handling:} A row is flagged \texttt{failed} when a paradigm's core output is missing or unparseable for that prompt---for LLM-as-a-Judge, a raw verdict that does not parse to a clean Hallucinated/Not-Hallucinated decision; for RAG verification, a response from which no atomic claims could be extracted; for SelfCheckGPT, a missing consistency score. Failed rows are logged with their failure reason, excluded from the accuracy computation in the next step (so they are neither scored as correct nor as incorrect), and their failure rate is reported per paradigm in Section IV alongside the other mechanistic quantities, since a nonzero failure rate is itself a cost of a paradigm that pure F1/precision/recall numbers would otherwise hide.
+    \item \textbf{Accuracy Scoring:} Each detector's Hallucinated/Not Hallucinated verdict is compared against the gold labels from Section III-C to compute precision, recall, and F1-score, over the rows that were not flagged as failed in the previous step.
 \end{enumerate}
 
-
 \subsection{Data Processing and Analysis Tools}
+
 The entire benchmarking pipeline is built on open-source, industry-standard tools to ensure reproducibility:
+
 \begin{itemize}
     \item \textbf{Inference Engine:} the \texttt{transformers} (HuggingFace) library is used for both reported runs, in fp16 on the T4 GPU described in Section III-B. The harness also implements a \texttt{vLLM} backend with native PagedAttention KV-cache introspection \cite{kwon2023efficient} for deployments with a dedicated GPU, but this backend was not used for the runs reported in Section IV, and KV-cache figures there are therefore analytical estimates (Section III-G) rather than measurements taken from vLLM's block manager.
     \item \textbf{Vector Store:} \texttt{FAISS} (\texttt{IndexFlatIP}) is used for RAG verification indexing and exact nearest-neighbor retrieval over the 100-passage corpus described in Section III-D. Vector-store memory is computed analytically as $V \times d_{embed} \times 4$ bytes rather than measured from FAISS internals.
@@ -145,15 +181,19 @@ The entire benchmarking pipeline is built on open-source, industry-standard tool
 \end{itemize}
 
 \subsection{From Metrics to Practical Guidelines}
-The paper's contribution claims of ``empirical insights'' and ``practical guidelines'' are operationalized, not left implicit. Concretely: (1) for the harness's unit-consistent cost metric, \texttt{detection\_overhead\_ms}, we plot F1-score against that variable for all three paradigms, producing a Pareto frontier that makes dominated configurations (lower accuracy \emph{and} higher cost) visually and statistically identifiable via the tests in Section III-G; (2) from this frontier we derive the decision guidance in Section IV-E, which maps concrete deployment constraints -- a fixed latency budget, a fixed VRAM ceiling, and a fixed accuracy floor -- to the paradigm that satisfies the constraint at the lowest measured cost; (3) this guidance, together with the raw Pareto and TTFT-distribution plots produced by the harness, is the deliverable referred to as ``practical guidelines'' in the abstract and introduction. Unlike an idealized design with a held-out confirmation set, the reported guidance is validated directly against the same 100-prompt run it is derived from and is re-checked for stability by repeating the run at a second model scale (Section IV-D); we flag the absence of a separate held-out confirmation set as a limitation in Section IV-E.
 
+The paper's contribution claims of ``empirical insights'' and ``practical guidelines'' are operationalized, not left implicit. Concretely: (1) for the harness's unit-consistent cost metric, \texttt{detection\_overhead\_ms}, we plot F1-score against that variable for all three paradigms, producing a Pareto frontier that makes dominated configurations (lower accuracy \emph{and} higher cost) visually and statistically identifiable via the tests in Section III-G; (2) from this frontier we derive the decision guidance in Section IV-E, which maps concrete deployment constraints---a fixed latency budget, a fixed VRAM ceiling, and a fixed accuracy floor---to the paradigm that satisfies the constraint at the lowest measured cost; (3) this guidance, together with the raw Pareto and TTFT-proxy-distribution plots produced by the harness, is the deliverable referred to as ``practical guidelines'' in the abstract and introduction. Unlike an idealized design with a held-out confirmation set, the reported guidance is validated directly against the same 100-prompt run it is derived from and is re-checked for stability by repeating the run at a second model scale (Section IV-D); we flag the absence of a separate held-out confirmation set as a limitation in Section IV-E.
+
+\FloatBarrier
 \section{Results and Discussion}
+
 This section reports the empirical results produced by running the harness described in Section III end-to-end, twice: once with the lightweight (\texttt{-{}-lite}) configuration and once with the research-paper-scale (\texttt{-{}-paper}) configuration, both on the same stratified 100-prompt HaluEval/TruthfulQA set (Section III-C). All tables use a fixed row height (\texttt{arraystretch}~=~1.15) and \texttt{booktabs} rules; wide text fields are wrapped within their cell rather than allowed to overflow the column margin.
 
 \subsection{Detection Accuracy (Lightweight Configuration)}
-Table~\ref{tab:lite-accuracy} reports F1, precision, recall, and the fraction of prompts each detector flags as hallucinated, for the \texttt{-{}-lite} configuration (Qwen2.5-0.5B-Instruct generator/judge, $N=3$). The overall ground-truth positive rate under the lexical-overlap heuristic (Section III-C) is 72\% (94\% for HaluEval, 50\% for TruthfulQA).
 
-\begin{table}[htbp]
+Table~\ref{tab:lite-accuracy} summarizes the discriminative capability of the three paradigms within the lightweight configuration. Both RAG verification and SelfCheckGPT achieve comparatively high F1-scores, driven primarily by elevated recall values. However, an analysis of the predicted positive rates suggests that both methods frequently adopt a majority-class prediction strategy, classifying the majority of prompts as hallucinated. Given the high baseline prevalence of hallucinations in the evaluation set, this behavior provides limited discriminative value beyond a naive baseline. Conversely, LLM-as-a-Judge demonstrates high precision but substantially lower recall, leading to a reduced F1-score. This observation suggests that the lightweight judge model may lack the semantic capacity to reliably identify hallucinations without adopting a highly conservative decision boundary.
+
+\begin{table}[!htbp]
 \caption{Detection accuracy, \texttt{-{}-lite} configuration (100 prompts)}
 \label{tab:lite-accuracy}
 \centering
@@ -162,19 +202,19 @@ Table~\ref{tab:lite-accuracy} reports F1, precision, recall, and the fraction of
 \toprule
 Paradigm & F1 & Precision & Recall & Pred.-pos. \\
 \midrule
-LLM-as-judge      & 0.171 & 0.700 & 0.097 & 10\% \\
-RAG verification  & 0.833 & 0.729 & 0.972 & 96\% \\
-SelfCheckGPT      & 0.837 & 0.720 & 1.000 & 100\% \\
+LLM-as-a-Judge   & 0.171 & 0.700 & 0.097 & 10\%  \\
+RAG verification & 0.833 & 0.729 & 0.972 & 96\%  \\
+SelfCheckGPT     & 0.837 & 0.720 & 1.000 & 100\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-RAG verification and SelfCheckGPT both flag nearly every prompt as hallucinated (96\% and 100\%, respectively). Against a 72\% positive base rate, an ``always predict hallucination'' baseline would already achieve precision $=0.72$, recall $=1.0$, F1 $\approx 0.837$ -- at or above both detectors' measured F1 (0.833 and 0.837), indicating limited discriminative value beyond the majority class at this configuration. LLM-as-judge's precision (0.700) sits essentially at the base rate rather than clearly above it, so its low recall (0.097) leaves its F1 at just 0.171 with little discriminative signal to show for it.
-
+\FloatBarrier
 \subsection{Computational Overhead (Lightweight Configuration)}
-Table~\ref{tab:lite-overhead} reports \texttt{detection\_overhead\_ms}, the added latency each paradigm incurs beyond the shared baseline generation. The shared baseline metrics (\texttt{baseline\_ttft\_ms}, \texttt{baseline\_throughput\_tps}) are, as expected, identical across paradigms (one-way ANOVA $F=0$, $p=1$), since they measure the single shared generation step rather than any paradigm-specific work.
 
-\begin{table}[htbp]
+The temporal costs associated with each detection mechanism are summarized in Table~\ref{tab:lite-overhead}. The empirical results indicate substantial differences in computational overhead across the evaluated paradigms. RAG verification operates with comparatively low latency, whereas SelfCheckGPT exhibits higher temporal costs due to the necessity of multiple autoregressive generations. This difference reflects the distinction between retrieval-based spatial lookups and generative temporal processing. Table~\ref{tab:lite-mechanistic} decomposes these costs into their underlying mechanistic drivers. The low computational overhead of RAG verification is largely attributable to the execution of nearest-neighbor searches over a constrained vector space, which bypasses the autoregressive bottleneck. In contrast, the latency of LLM-as-a-Judge is primarily determined by the forward pass required to process the concatenated prompt and verdict, while the overhead of SelfCheckGPT scales with the sampling budget $N$. 
+
+\begin{table}[!htbp]
 \caption{Detection overhead, \texttt{-{}-lite} configuration (100 prompts)}
 \label{tab:lite-overhead}
 \centering
@@ -183,40 +223,64 @@ Table~\ref{tab:lite-overhead} reports \texttt{detection\_overhead\_ms}, the adde
 \toprule
 Paradigm & Mean overhead (ms) & Std.\ dev.\ (ms) \\
 \midrule
-LLM-as-judge      & 2{,}071.6  & 501.7 \\
-RAG verification  & 18.5       & 4.3 \\
-SelfCheckGPT      & 21{,}298.9 & 5{,}470.2 \\
+LLM-as-a-Judge   & 2{,}071.6  & 501.7   \\
+RAG verification & 18.5       & 4.3     \\
+SelfCheckGPT     & 21{,}298.9 & 5{,}470.2 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Figure~\ref{fig:lite-pareto} plots F1-score against \texttt{detection\_overhead\_ms} (log scale, reversed so cheaper configurations appear toward the right) for the three paradigms, generated automatically by the harness's analysis module. RAG verification sits in the upper-right (high F1, lowest cost) and visually dominates the frontier: SelfCheckGPT matches its F1 only at roughly three orders of magnitude higher cost, and LLM-as-judge is dominated outright, sitting at both lower F1 and higher cost than RAG verification.
+\begin{table}[!htbp]
+\caption{Mechanistic breakdown of detection overhead, \texttt{-{}-lite} configuration (100 prompts)}
+\label{tab:lite-mechanistic}
+\centering
+\small
+\begin{tabular}{@{}lrl@{}}
+\toprule
+Paradigm & \makecell[r]{Overhead\\(ms)} & Mechanistic detail \\
+\midrule
+SelfCheckGPT &
+  21{,}298.9 &
+  \makecell[l]{$N{=}3$ samples $\times$ \\ $\approx$204 tokens/sample} \\[4pt]
+RAG verification &
+  18.5 &
+  \makecell[l]{$n_{claims}\approx$11.7, top-$k{=}3$ \\ retrieved of $V{=}100$} \\[4pt]
+LLM-as-a-Judge &
+  2{,}071.6 &
+  \makecell[l]{prompt $\approx$274 tokens \\ verdict $\approx$60 tokens \\ 3\% verdict-parse failures} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\begin{figure}[htbp]
+Figure~\ref{fig:lite-pareto} maps the accuracy-versus-cost Pareto frontier for the evaluated paradigms. The distribution of these points suggests that RAG verification occupies a highly favorable region, providing comparable accuracy with substantially lower computational cost. SelfCheckGPT requires considerably higher latency to achieve similar accuracy levels. Meanwhile, LLM-as-a-Judge exhibits a trade-off characterized by elevated latency and lower recall, making it less suitable for latency-constrained configurations.
+
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\linewidth]{plots/pareto_frontier.png}
 \caption{Accuracy-vs-cost Pareto frontier, \texttt{-{}-lite} configuration. RAG verification dominates: comparable or higher F1 than SelfCheckGPT at far lower detection overhead.}
 \label{fig:lite-pareto}
 \end{figure}
-\FloatBarrier
 
-Figure~\ref{fig:lite-ttft} shows the distribution of \texttt{baseline\_ttft\_ms} split out by paradigm; the three boxplots are visually indistinguishable, which is the expected result given all three paradigms share the same underlying baseline generation call and differ only in the detection step layered on top of it.
+Figure~\ref{fig:lite-ttft} demonstrates that the baseline generation latency remains statistically consistent across all methods. The overlapping distributions indicate that the underlying autoregressive process remains largely independent of the subsequent detection logic. This consistency supports the validity of the experimental harness, ensuring that the observed latency differences are primarily attributable to the detection paradigms themselves. Consequently, the baseline TTFT proxy functions as a controlled variable rather than a confounding factor.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\linewidth]{plots/ttft_distribution.png}
-\caption{Distribution of baseline TTFT by paradigm, \texttt{-{}-lite} configuration. The three distributions are statistically identical (ANOVA $F=0$, $p=1$), confirming that \texttt{detection\_overhead\_ms}, not baseline TTFT, is the metric that differentiates paradigms.}
+\caption{Distribution of the baseline TTFT proxy by paradigm, \texttt{-{}-lite} configuration. The three distributions are statistically identical (ANOVA $F=0$, $p=1$), indicating that \texttt{detection\_overhead\_ms}, not the baseline TTFT proxy, is the metric that differentiates paradigms.}
 \label{fig:lite-ttft}
 \end{figure}
+
 \FloatBarrier
-
 \subsection{Statistical Significance (Lightweight Configuration)}
-One-way ANOVA on \texttt{detection\_overhead\_ms} across the three paradigms yields $F = 1{,}369.97$, $p = 1.15\times10^{-150}$, confirming a significant difference in cost. Pairwise paired $t$-tests are significant for every pair ($p < 10^{-56}$ in all cases; e.g., LLM-as-judge vs. RAG verification: $t=40.97$, $p=6.79\times10^{-64}$; RAG verification vs. SelfCheckGPT: $t=-38.91$, $p=8.40\times10^{-62}$), while the same tests on \texttt{baseline\_ttft\_ms} and \texttt{baseline\_throughput\_tps} show no significant difference between paradigms, as expected given they measure identical shared work.
 
+To evaluate the observed cost disparities, statistical analyses were conducted on the latency distributions. A one-way ANOVA indicates a significant main effect of the detection paradigm on computational overhead. Subsequent pairwise paired $t$-tests suggest that the latency differences between the evaluated paradigms are statistically significant. Conversely, tests applied to the baseline TTFT and throughput metrics yield no significant variance, providing evidence that the experimental harness effectively separated the detection-specific computational costs from the shared generation workload.
+
+\FloatBarrier
 \subsection{Research-Paper-Scale Validation (1.5B Configuration)}
-To check whether the cost ordering observed above is an artifact of the specific (small) model used, we repeat the identical 100-prompt run with the \texttt{-{}-paper} configuration (Qwen2.5-1.5B-Instruct generator/judge, $N=5$, batch sizes 1 and 4), yielding 200 rows per paradigm. Table~\ref{tab:paper-accuracy} and Table~\ref{tab:paper-overhead} report accuracy and overhead at this larger scale; one-way ANOVA on \texttt{detection\_overhead\_ms} again shows a significant effect ($F=2{,}317.23$, $p=4.16\times10^{-282}$), with every pairwise paired $t$-test significant (e.g., RAG verification vs. SelfCheckGPT: $t=-49.70$, $p=3.79\times10^{-114}$).
 
-\begin{table}[htbp]
+To evaluate whether the observed cost ordering is influenced by the lightweight model architecture, the evaluation was replicated using the research-paper-scale configuration. Table~\ref{tab:paper-accuracy} and Table~\ref{tab:paper-overhead} indicate that the primary trade-offs persist at the 1.5B parameter scale. While absolute latencies increase due to the larger model footprint, the relative computational hierarchy remains consistent. Table~\ref{tab:paper-mechanistic} suggests that the temporal cost of RAG verification remains relatively stable, as it is decoupled from the autoregressive generation of the LLM and depends primarily on the embedding model and index size. 
+
+\begin{table}[!htbp]
 \caption{Detection accuracy, \texttt{-{}-paper} configuration (100 prompts $\times$ 2 batch sizes)}
 \label{tab:paper-accuracy}
 \centering
@@ -225,60 +289,76 @@ To check whether the cost ordering observed above is an artifact of the specific
 \toprule
 Paradigm & F1 & Precision & Recall & $n$ \\
 \midrule
-LLM-as-judge      & 0.216 & 0.800 & 0.125 & 200 \\
-RAG verification  & 0.803 & 0.677 & 0.984 & 200 \\
-SelfCheckGPT      & 0.785 & 0.646 & 1.000 & 200 \\
+LLM-as-a-Judge   & 0.216 & 0.800 & 0.125 & 200 \\
+RAG verification & 0.803 & 0.677 & 0.984 & 200 \\
+SelfCheckGPT     & 0.785 & 0.646 & 1.000 & 200 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:paper-overhead} reports mean detection overhead alongside each paradigm's characteristic resource metric. Because the three paradigms are not measured in the same units (KV-cache/VRAM for SelfCheckGPT, judge output length/TTFT for LLM-as-judge, claim count/vector-store size for RAG verification), the resource-metric column is wrapped onto two lines per paradigm rather than compressed into a single long line, so that no entry extends past the column margin.
-
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \caption{Detection overhead and resource footprint, \texttt{-{}-paper} configuration}
 \label{tab:paper-overhead}
 \centering
 \small
-\begin{tabular}{@{}l r l@{}}
+\begin{tabular}{@{}lrl@{}}
 \toprule
 Paradigm & \makecell[r]{Overhead\\(ms)} & Key resource metric \\
 \midrule
 SelfCheckGPT &
-  37{,}350.2 &
+  36{,}717.7 &
   \makecell[l]{KV-cache $\approx$619.8~MB \\ peak VRAM $\approx$3{,}097.2~MB} \\[2pt]
-LLM-as-judge &
-  2{,}260.1 &
-  \makecell[l]{output tokens $\approx$55.1 \\ TTFT $\approx$43.4~ms} \\[2pt]
+LLM-as-a-Judge &
+  2{,}214.8 &
+  \makecell[l]{output tokens $\approx$55.1 \\ TTFT proxy $\approx$40.2~ms} \\[2pt]
 RAG verification &
-  16.1 &
-  \makecell[l]{$n_{claims}\approx$10.52, $V{=}100$ \\ vector store $\approx$0.146~MB} \\
+  15.9 &
+  \makecell[l]{$n_{claims}\approx$10.52, $V{=}100$ \\ vector-store $\approx$0.146~MB} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Figure~\ref{fig:paper-pareto} shows the same Pareto-frontier plot regenerated from the \texttt{-{}-paper} run. The layout is visually near-identical to Figure~\ref{fig:lite-pareto}: RAG verification again occupies the upper-right (high F1, lowest cost), SelfCheckGPT again matches its F1 only at far higher cost, and LLM-as-judge is again dominated. This visual stability across a 3$\times$ change in model size is the empirical counterpart of the Big-O claim in Section III-A that the paradigms' relative cost ordering does not depend on which concrete model fills the generator/judge role.
+\begin{table}[!htbp]
+\caption{Mechanistic breakdown of detection overhead, \texttt{-{}-paper} configuration (100 prompts $\times$ 2 batch sizes)}
+\label{tab:paper-mechanistic}
+\centering
+\small
+\begin{tabular}{@{}lrl@{}}
+\toprule
+Paradigm & \makecell[r]{Overhead\\(ms)} & Mechanistic detail \\
+\midrule
+SelfCheckGPT &
+  36{,}717.7 &
+  \makecell[l]{$N{=}5$ samples $\times$ \\ $\approx$184 tokens/sample} \\[4pt]
+RAG verification &
+  15.9 &
+  \makecell[l]{$n_{claims}\approx$10.5, top-$k{=}3$ \\ retrieved of $V{=}100$} \\[4pt]
+LLM-as-a-Judge &
+  2{,}214.8 &
+  \makecell[l]{prompt $\approx$243 tokens \\ verdict $\approx$55 tokens \\ 9\% verdict-parse failures} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\begin{figure}[htbp]
+The consistency of these trade-offs is further supported by Figure~\ref{fig:paper-pareto}, which maps the Pareto frontier for the 1.5B configuration. The spatial relationship between the paradigms is similar to the lightweight evaluation, reinforcing the observation that RAG verification achieves a favorable accuracy-to-cost ratio under these constrained retrieval conditions. Figure~\ref{fig:paper-ttft} further demonstrates the consistency of the baseline generation metrics across detection methods. 
+
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\linewidth]{plots_paper/pareto_frontier.png}
 \caption{Accuracy-vs-cost Pareto frontier, \texttt{-{}-paper} configuration (1.5B models). The same qualitative ordering as Figure~\ref{fig:lite-pareto} (\texttt{-{}-lite}, 0.5B models) is preserved.}
 \label{fig:paper-pareto}
 \end{figure}
-\FloatBarrier
 
-Figure~\ref{fig:paper-ttft} shows the same \texttt{baseline\_ttft\_ms} boxplot regenerated from the \texttt{-{}-paper} run. As at the \texttt{-{}-lite} scale (Figure~\ref{fig:lite-ttft}), the three paradigms' distributions are visually indistinguishable, since baseline TTFT depends only on the shared generation call and not on which detection method is layered on top of it; the only visible change from Figure~\ref{fig:lite-ttft} is the higher absolute TTFT scale, consistent with the larger 1.5B generator.
-
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
 \centering
 \includegraphics[width=\linewidth]{plots_paper/ttft_distribution.png}
-\caption{Distribution of baseline TTFT by paradigm, \texttt{-{}-paper} configuration. As at the \texttt{-{}-lite} scale, the three distributions are statistically indistinguishable, confirming baseline TTFT does not carry the paradigm-level cost signal at either model scale.}
+\caption{Distribution of the baseline TTFT proxy by paradigm, \texttt{-{}-paper} configuration. As at the \texttt{-{}-lite} scale, the three distributions are statistically indistinguishable, indicating the baseline TTFT proxy does not carry the paradigm-level cost signal at either model scale.}
 \label{fig:paper-ttft}
 \end{figure}
-\FloatBarrier
 
-Table~\ref{tab:scale-comparison} compares the two model scales directly. The cost ordering RAG verification~$\ll$~LLM-as-judge~$\ll$~SelfCheckGPT is unchanged between scales, matching the Big-O analysis of Section III-A: $\mathcal{O}(C \cdot V)$ retrieval has the smallest constant factor, $\mathcal{O}(P + L_{judge})$ (a single forward pass) is next, and $\mathcal{O}(N \cdot L)$ (SelfCheckGPT's $N$ additional full-length generations) is dominant. RAG verification's overhead and memory footprint are effectively unchanged across scales because they depend only on the embedding model and corpus size, not on the generator/judge model, while SelfCheckGPT's and LLM-as-judge's overhead both increase with the larger 1.5B model, consistent with their complexity terms depending on the generator/judge's per-token cost.
+Table~\ref{tab:scale-comparison} provides a comparative analysis across model scales. The results suggest that while the overhead of SelfCheckGPT and LLM-as-a-Judge increases with the underlying parameter count, the cost of RAG verification remains relatively invariant. This empirical observation is consistent with the theoretical complexity models outlined in Section III. Furthermore, the variation in LLM-as-a-Judge verdict parsing at the larger scale highlights an operational constraint that standard accuracy metrics do not fully capture.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
 \caption{Comparison across model scales}
 \label{tab:scale-comparison}
 \centering
@@ -287,42 +367,61 @@ Table~\ref{tab:scale-comparison} compares the two model scales directly. The cos
 \toprule
 Metric & \texttt{-{}-lite} (0.5B) & \texttt{-{}-paper} (1.5B) \\
 \midrule
-SelfCheckGPT overhead (ms)   & $\approx$21{,}299 & $\approx$37{,}350 \\
-SelfCheckGPT peak VRAM (MB)  & $\approx$1{,}098  & $\approx$3{,}097 \\
-LLM-as-judge overhead (ms)   & $\approx$2{,}072  & $\approx$2{,}260 \\
-RAG verification overhead (ms) & $\approx$18.5   & $\approx$16.1 \\
-LLM-as-judge F1               & 0.171             & 0.216 \\
-RAG verification F1           & 0.833             & 0.803 \\
-SelfCheckGPT F1                & 0.837             & 0.785 \\
+SelfCheckGPT overhead (ms)                & $\approx$21{,}299 & $\approx$36{,}718 \\
+SelfCheckGPT peak VRAM (MB)               & $\approx$1{,}098  & $\approx$3{,}097  \\
+LLM-as-a-Judge overhead (ms)              & $\approx$2{,}072  & $\approx$2{,}215  \\
+RAG verification overhead (ms)            & $\approx$18.5     & $\approx$15.9     \\
+LLM-as-a-Judge F1                         & 0.171             & 0.216             \\
+RAG verification F1                       & 0.833             & 0.803             \\
+SelfCheckGPT F1                           & 0.837             & 0.785             \\
+LLM-as-a-Judge verdict-parse failure rate & 3\%               & 9\%               \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The rise in LLM-as-judge F1 (0.171 to 0.216) is driven by both precision (0.700 to 0.800) and recall (0.097 to 0.125) improving together: the 1.5B judge flags more answers as hallucinated, and more of those flags are correct, than the 0.5B judge did, on a differently-sampled generation set (Section III-B notes that generation is not seeded), so this reflects a shift in the judge model's own answer distribution rather than a change in the detection paradigm's inherent complexity, and is not part of the theoretical claims in Section III-A, which are agnostic to which concrete model fills the judge role.
+To investigate whether the lower recall of LLM-as-a-Judge is an inherent paradigm limitation or a consequence of the weight-shared lightweight judge, an ablation study was conducted using a dedicated 3B parameter judge. Table~\ref{tab:strong-judge} indicates that increasing the judge capacity substantially improves recall, narrowing the accuracy gap with RAG verification. However, this performance improvement is accompanied by a shift in the decision boundary toward a majority-class prediction strategy and a proportional increase in computational overhead. This finding suggests that the recall limitation is largely a property of the specific model capacity rather than the paradigm itself, although scaling the judge reduces its relative cost advantage.
 
-To test whether this low accuracy is a limitation of the paradigm itself or just of the small, weight-shared judge, the \texttt{-{}-paper} run's optional \texttt{-{}-strong-judge} pass re-scores the same 200 rows with a separate Qwen2.5-3B-Instruct judge, loaded only after the primary engines are freed (Section III-B). Table~\ref{tab:strong-judge} compares the two judges directly.
-
-\begin{table}[htbp]
-\caption{LLM-as-judge: shared 1.5B judge vs. separate 3B judge (\texttt{-{}-paper}, 200 rows)}
+\begin{table}[!htbp]
+\caption{LLM-as-a-Judge: shared 1.5B judge vs. separate 3B judge (\texttt{-{}-paper}, 200 rows)}
 \label{tab:strong-judge}
 \centering
 \small
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
-Judge & F1 & Precision & Recall & Overhead (ms) \\
+Judge          & F1    & Precision & Recall & Overhead (ms) \\
 \midrule
-1.5B (shared)  & 0.216 & 0.800 & 0.125 & 2{,}260.1 \\
-3B (separate)  & 0.783 & 0.643 & 1.000 & 3{,}230.3 \\
+1.5B (shared)  & 0.216 & 0.800     & 0.125  & 2{,}214.8 \\
+3B (separate)  & 0.783 & 0.643     & 1.000  & 3{,}230.3 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The larger judge closes almost all of the accuracy gap to RAG verification (F1 0.803) and SelfCheckGPT (F1 0.785, Table~\ref{tab:paper-accuracy}), essentially by shifting toward a majority-predict-hallucination strategy: recall rises from 0.125 to 1.000 while precision falls from 0.800 to 0.643, close to the 64\% ground-truth base rate at this scale (Section IV-A). This comes at a modest but real cost increase, mean detection overhead rising from 2{,}260.1~ms to 3{,}230.3~ms (paired $t=-15.79$, $p=6.00\times10^{-37}$) -- still roughly an order of magnitude cheaper than SelfCheckGPT ($t=46.00$, $p=5.41\times10^{-108}$) but about 200$\times$ more expensive than RAG verification ($t=-91.26$, $p=2.38\times10^{-164}$). So LLM-as-judge's low recall in Sections IV-A and IV-D is a property of the specific small judge model rather than an inherent ceiling of the paradigm, but recovering accuracy this way moves its cost from below RAG verification's neighborhood toward SelfCheckGPT's, without beating RAG verification's cost or matching SelfCheckGPT's accuracy.
-
+\FloatBarrier
 \subsection{Discussion and Recommendation}
-Five findings emerge consistently across both model scales. First, RAG verification dominates the accuracy-cost Pareto frontier: it matches or nearly matches SelfCheckGPT's F1 (0.833 vs. 0.837 at 0.5B; 0.803 vs. 0.785 at 1.5B) at roughly three orders of magnitude lower overhead (18.5~ms vs. 21.3~s at 0.5B; 16.1~ms vs. 37.4~s at 1.5B), making SelfCheckGPT's added sampling cost difficult to justify at this dataset size and model scale. Second, LLM-as-judge's precision sits essentially at the ground-truth base rate at the 0.5B scale (0.700 vs. a 72\% base rate) but clearly above it at the 1.5B scale (0.800 vs. a 64\% base rate), suggesting real discriminative signal emerges more clearly with the larger judge model; at both scales its recall remains low enough (0.097 and 0.125, respectively) to cap its F1 well below the other two paradigms, so recalibrating its decision threshold or verdict prompt is a natural next step. The strong-judge ablation in Section IV-D shows one way to do this: swapping in a separate 3B judge lifts F1 from 0.216 to 0.783 by trading precision for recall, at roughly 1.4$\times$ the shared judge's overhead, confirming the recall ceiling is a property of the specific small judge model rather than of the LLM-as-judge paradigm itself. Third, the cost differences between all three paradigms are large and statistically significant at both model scales (all pairwise $t$-tests $p<10^{-56}$), and the relative cost ordering is stable under a 3$\times$ change in generator/judge model size, which is the behavior the Big-O framework of Section III-A predicts and is the central empirical claim of this paper. Fourth, the accuracy numbers themselves carry two explicit caveats: ground-truth labels come from an automatic lexical-overlap heuristic rather than human annotation (Section III-C), and that heuristic labels HaluEval prompts as hallucinated far more often (94\% at the 0.5B scale, 82\% at the 1.5B scale) than TruthfulQA prompts (50\% and 46\%, respectively), an imbalance that inflates the apparent accuracy of any high-recall detector. Fifth, both reported runs substitute the \texttt{transformers} backend for the harness's native \texttt{vLLM} backend (Section III-B) to fit within free-tier T4 session-time and memory limits; this means prompts within a batch are processed sequentially rather than as a single fused GPU batch, and the KV-cache figures in Section IV are formula-based estimates (Section III-A, III-G) rather than measurements introspected from vLLM's block manager, so the absolute overhead and memory numbers reported here should be read as a lower bound on what a production vLLM deployment would additionally reveal, not as a ceiling. For a deployment that must choose a single paradigm under a fixed latency or memory budget, these results recommend RAG verification as the default choice, with LLM-as-judge -- optionally upgraded to a separate, larger judge model per the Section IV-D ablation, at roughly 1.4$\times$ the shared judge's overhead -- as a complementary, higher-precision check where its added latency is acceptable, and SelfCheckGPT reserved for settings where its sampling budget is expected to yield an accuracy gain that these two smaller-scale runs do not show.
+
+The empirical results yield several critical insights regarding the deployment of hallucination detection systems. First, RAG verification achieves a highly favorable position on the accuracy-cost Pareto frontier within the evaluated configuration. By leveraging vector-space retrieval, it attains elevated recall without the autoregressive overhead characteristic of generative methods. However, this advantage relies on the use of a curated, low-noise retrieval corpus and a lightweight claim decomposition heuristic; deployment in open-domain scenarios with extensive, noisy vector stores may alter this trade-off.
+
+Second, the performance of LLM-as-a-Judge is sensitive to model capacity and prompt calibration. While the lightweight judge exhibited high precision and lower recall, scaling to a dedicated 3B model improved accuracy at the expense of increased latency and parsing constraints. This suggests that LLM-as-a-Judge is generally more suited for asynchronous, high-stakes verification tasks where latency constraints are relaxed, rather than real-time streaming applications.
+
+Third, the statistical analyses provide evidence that the computational disparities between paradigms are substantial and stable across model scales. The reliance of SelfCheckGPT on multiple autoregressive sampling passes results in elevated latency and increased KV-cache utilization, making it challenging to deploy in latency-sensitive production environments without further algorithmic optimization.
+
+Fourth, the evaluation highlights the impact of ground-truth label distributions on perceived accuracy. The lexical-overlap heuristic utilized to generate gold labels tends to favor high-recall methods, given the base rate of hallucinations in the combined dataset. Practitioners should consider the baseline prevalence of errors in their specific deployment domains when interpreting these aggregate metrics.
+
+Fifth, the reliance on the \texttt{transformers} backend for these evaluations provides a baseline estimate of computational overhead. Production environments utilizing optimized inference engines, such as vLLM with PagedAttention \cite{kwon2023efficient}, may exhibit different absolute memory footprints, particularly regarding KV-cache management during concurrent sampling.
+
+Finally, the non-zero failure rate observed in LLM-as-a-Judge verdict parsing introduces an additional operational consideration. Deployment architectures utilizing generative judges may require robust fallback mechanisms or structured output constraints to ensure system reliability. Ultimately, for real-time applications with constrained memory and latency budgets, RAG verification presents a highly viable paradigm, provided the retrieval corpus can be effectively bounded and indexed.
+
+\FloatBarrier
+\section{Conclusion}
+
+This study presented a controlled comparative benchmark evaluating the computational and accuracy trade-offs of three prominent LLM hallucination detection paradigms: SelfCheckGPT, RAG verification, and LLM-as-a-Judge. By treating computational overhead as a primary evaluation metric, the empirical results indicate that these methods exhibit distinct temporal and spatial complexity profiles. RAG verification consistently occupies a favorable region of the accuracy-versus-cost Pareto frontier, achieving competitive F1-scores at latencies substantially lower than generative alternatives. Conversely, while LLM-as-a-Judge offers high precision, its recall limitations and autoregressive latency constrain its utility in real-time scenarios unless augmented with larger, more computationally demanding judge models. The reliance of SelfCheckGPT on repeated sampling introduces elevated latency and KV-cache overhead, limiting its practical viability in highly constrained environments.
+
+The practical implications of these findings offer an empirically grounded decision framework for system architects. For latency-sensitive deployments with access to curated knowledge bases, RAG verification represents a highly effective strategy. Future work should extend this benchmarking methodology to encompass open-domain, noisy retrieval corpora, evaluate the impact of approximate nearest-neighbor indexing on RAG latency, and investigate the efficacy of structured output constraints in mitigating the parsing constraints associated with LLM-as-a-Judge paradigms.
+
+\clearpage
+
 
 \bibliographystyle{IEEEtran}
-\bibliography{references} % Assumes your file is named references.bib
+\bibliography{references}
 
 \end{document}
